@@ -33,7 +33,16 @@ def get_all_tables(conn):
     except Exception as e:
         print(f"Error retrieving tables: {e}")
         return []
-
+    
+def get_table_metadata(conn, table_name):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"DESCRIBE {table_name};")
+        columns = cursor.fetchall()
+        return columns
+    except mysql.connector.Error as e:
+        print(f"Error describing table {table_name}: {e}")
+        return None
 # Upload CSV to MySQL and create a table
 def upload_csv_to_mysql(file_path):
     conn = connect_to_mysql()
@@ -70,28 +79,53 @@ def upload_csv_to_mysql(file_path):
 
 # Query templates
 query_templates = {
-    "basic": r"(list|show) all ((?:\w+,?\s?)+)",
-    "where": r"(find|get|show) ((?:\w+,?\s?)+) where (\w+) (is|=|contains|>|<) (.+)",
-    "aggregation": r"(count|sum|average|avg|min|max) of ((?:\w+,?\s?)+)",
-    "group_by_aggregation": r"(sum|average|count|avg|min|max) ((?:\w+,?\s?)+) by (\w+)",
-    "group_by_having": r"(find|get|show) ((?:\w+,?\s?)+) with (sum|average|count|min|max) (\w+) greater than (\d+)",
-    "join": r"(find|get|show) ((?:\w+\.\w+,?\s?)+) and ((?:\w+\.\w+,?\s?)+) where (\w+\.\w+) = (\w+\.\w+)",
-    "order_by": r"(list|show) ((?:\w+,?\s?)+) ordered by (\w+) (asc|desc)?"
+    "basic": r"(list|show) all ((?:\w+\s*,?\s*)+)",
+    "where": r"(find|get|show)\s+((?:\w+\s+and\s+)*\w+)\s+where\s+(\w+)\s+(is|=|contains|>|<)\s+(.+)",
+    "aggregation": r"(count|sum|average|avg|min|max) of ((?:\w+\s+and\s+)*\w+)",
+    "group_by_aggregation": r"(sum|average|count|avg|min|max) ((?:\w+\s+and\s+)*\w+) by (\w+)",
+    "group_by_having": r"(find|get|show) ((?:\w+\s+and\s+)*\w+) with (sum|average|count|min|max) (\w+) greater than (\d+)",
+    "join": r"(find|get|show) ((?:\w+\.\w+\s+and\s+)*\w+\.\w+) and ((?:\w+\.\w+\s+and\s+)*\w+\.\w+) where (\w+\.\w+) = (\w+\.\w+)",
+    "order_by": r"(list|show) ((?:\w+\s+and\s+)*\w+) ordered by (\w+) (asc|desc)?"
 }
 
 
+
 # Parse user input
-def parse_input(user_input):
+def parse_input(user_input,conn):
+    
     if user_input.startswith("upload "):
         match = re.match(r"upload (.+\.csv)", user_input)
         if match:
             return "upload", match.group(1)
     elif user_input.lower() == "give sample queries":
         return "sample_queries", None
+    elif user_input.lower().startswith("introduce "):
+        match = re.match(r"introduce (\w+)", user_input, re.IGNORECASE)
+        if match:
+            table_name = match.group(1)
+            # Check if the table exists
+            tables = get_all_tables(conn)
+            if table_name not in tables:
+                return "error", f"Table '{table_name}' does not exist."
+            
+            # Fetch metadata
+            metadata = get_table_metadata(conn, table_name)
+            if not metadata:
+                return "error", f"Failed to retrieve metadata for table '{table_name}'."
+            
+            # Format metadata for output
+            result = f"Table: {table_name}\nColumns:\n"
+            for column in metadata:
+                col_name = column[0]  # Column name
+                col_type = column[1]  # Data type
+                result += f"  - {col_name} ({col_type})\n"
+            return "introduce", result
     else:
-        for query_type, pattern in query_templates.items():
+        
+        for query_type, pattern in query_templates.items(): 
             if re.search(pattern, user_input, re.IGNORECASE):
                 return query_type, user_input
+            
     return None, None
 
 # Process queries based on type
@@ -134,6 +168,7 @@ def process_query(query_type, user_input, table_name):
             JOIN {table2} ON {condition1} = {condition2};
         """
     elif query_type == "order_by":
+        print(user_input)
         match = re.search(query_templates["order_by"], user_input, re.IGNORECASE)
         column, order_column, order = match.group(2), match.group(3), match.group(4) or "ASC"
         sql = f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
@@ -165,7 +200,7 @@ def chatbot():
     
     while True:
         user_input = input("\nYou: ")
-        action, data = parse_input(user_input)
+        action, data = parse_input(user_input,conn)
         
         if action == "upload":
             conn, table_name = upload_csv_to_mysql(data)
@@ -183,6 +218,8 @@ def chatbot():
                     print(f"  SELECT column_name FROM {table_name} WHERE column_name = 'example';")
             else:
                 print("No tables found. Please upload a CSV file or check your database.")
+        elif action == "introduce":
+            print(data)
         elif action in query_templates.keys():
             if tables:
                 table_name = tables[0]  # Default to the first table for simplicity
