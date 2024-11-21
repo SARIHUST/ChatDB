@@ -7,7 +7,6 @@ MYSQL_HOST = "localhost"
 MYSQL_USER = "dsci551"
 MYSQL_PASSWORD = "password"
 MYSQL_DATABASE = "551project"
-
 # Connect to MySQL database
 def connect_to_mysql():
     try:
@@ -23,7 +22,19 @@ def connect_to_mysql():
         print(f"Error connecting to MySQL: {e}")
         return None
 
-# Create table and load CSV into MySQL
+# Retrieve all table names from the database
+def get_all_tables(conn):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SHOW TABLES;")
+        tables = [table[0] for table in cursor.fetchall()]
+        print("Available tables:", tables)
+        return tables
+    except Exception as e:
+        print(f"Error retrieving tables: {e}")
+        return []
+
+# Upload CSV to MySQL and create a table
 def upload_csv_to_mysql(file_path):
     conn = connect_to_mysql()
     if not conn:
@@ -32,13 +43,14 @@ def upload_csv_to_mysql(file_path):
     table_name = file_path.split("/")[-1].replace(".csv", "")
     df = pd.read_csv(file_path)
 
+    cursor = conn.cursor()
+
     # Create table query
     create_table_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
     for col in df.columns:
         create_table_query += f"{col} VARCHAR(255), "
     create_table_query = create_table_query.rstrip(", ") + ");"
 
-    cursor = conn.cursor()
     try:
         cursor.execute(create_table_query)
         conn.commit()
@@ -58,14 +70,15 @@ def upload_csv_to_mysql(file_path):
 
 # Query templates
 query_templates = {
-    "basic": r"list|show all (\w+)",
-    "where": r"(find|get|show) (\w+) where (\w+) (is|=|contains|>|<) (.+)",
-    "aggregation": r"(count|sum|average|avg|min|max) of (\w+)",
-    "group_by_aggregation": r"(sum|average|count|avg|min|max) (\w+) by (\w+)",
-    "group_by_having": r"(find|get|show) (\w+) with (sum|average|count|min|max) (\w+) greater than (\d+)",
-    "join": r"(find|get|show) (\w+\.\w+) and (\w+\.\w+) where (\w+\.\w+) = (\w+\.\w+)",
-    "order_by": r"(list|show) (\w+) ordered by (\w+) (asc|desc)?"
+    "basic": r"(list|show) all ((?:\w+,?\s?)+)",
+    "where": r"(find|get|show) ((?:\w+,?\s?)+) where (\w+) (is|=|contains|>|<) (.+)",
+    "aggregation": r"(count|sum|average|avg|min|max) of ((?:\w+,?\s?)+)",
+    "group_by_aggregation": r"(sum|average|count|avg|min|max) ((?:\w+,?\s?)+) by (\w+)",
+    "group_by_having": r"(find|get|show) ((?:\w+,?\s?)+) with (sum|average|count|min|max) (\w+) greater than (\d+)",
+    "join": r"(find|get|show) ((?:\w+\.\w+,?\s?)+) and ((?:\w+\.\w+,?\s?)+) where (\w+\.\w+) = (\w+\.\w+)",
+    "order_by": r"(list|show) ((?:\w+,?\s?)+) ordered by (\w+) (asc|desc)?"
 }
+
 
 # Parse user input
 def parse_input(user_input):
@@ -93,7 +106,6 @@ def process_query(query_type, user_input, table_name):
         column, condition_column, operator, value = match.group(2), match.group(3), match.group(4), match.group(5)
         operator = "=" if operator == "is" else operator  # Replace "is" with "="
         sql = f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} '{value}';"
-        print(sql)
     elif query_type == "aggregation":
         match = re.search(query_templates["aggregation"], user_input, re.IGNORECASE)
         func, column = match.group(1), match.group(2)
@@ -127,7 +139,7 @@ def process_query(query_type, user_input, table_name):
         sql = f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
     else:
         sql = None
-    
+    print(sql)
     return sql
 
 # Execute an SQL query and fetch results
@@ -144,8 +156,12 @@ def execute_query(conn, query):
 # Main chatbot loop
 def chatbot():
     print("Hello! I'm your database assistant. You can upload CSV files, ask for sample queries, or ask natural language questions about your data.")
-    conn = None  # Global connection object for uploaded databases
-    table_name = None
+    conn = connect_to_mysql()
+    if not conn:
+        print("Failed to connect to the database.")
+        return
+    
+    tables = get_all_tables(conn)  # Get all existing tables in the database
     
     while True:
         user_input = input("\nYou: ")
@@ -155,33 +171,34 @@ def chatbot():
             conn, table_name = upload_csv_to_mysql(data)
             if not conn:
                 print("Failed to upload and process the CSV file.")
-        elif action == "sample_queries":
-            if conn and table_name:
-                sample_queries = [
-                    f"SELECT * FROM {table_name} LIMIT 10;",
-                    f"SELECT COUNT(*) FROM {table_name};",
-                    f"SELECT column_name FROM {table_name} WHERE column_name = 'example';"
-                ]
-                print("\nSample Queries:")
-                for query in sample_queries:
-                    print(query)
             else:
-                print("No database uploaded yet. Please upload a CSV file first.")
+                tables = get_all_tables(conn)  # Update table list
+        elif action == "sample_queries":
+            if tables:
+                print("\nSample Queries:")
+                for table_name in tables:
+                    print(f"Table: {table_name}")
+                    print(f"  SELECT * FROM {table_name} LIMIT 10;")
+                    print(f"  SELECT COUNT(*) FROM {table_name};")
+                    print(f"  SELECT column_name FROM {table_name} WHERE column_name = 'example';")
+            else:
+                print("No tables found. Please upload a CSV file or check your database.")
         elif action in query_templates.keys():
-            if conn and table_name:
+            if tables:
+                table_name = tables[0]  # Default to the first table for simplicity
                 sql_query = process_query(action, data, table_name)
                 if sql_query:
                     results = execute_query(conn, sql_query)
                     if results:
                         print("\nQuery Results:")
                         for row in results:
-                             print(" , ".join(map(str, row))) 
+                            print(" , ".join(map(str, row)))
                     else:
                         print("No results found or an error occurred.")
                 else:
                     print("Could not generate a valid SQL query. Please try again.")
             else:
-                print("No database uploaded yet. Please upload a CSV file first.")
+                print("No tables found. Please upload a CSV file or check your database.")
         else:
             print("Invalid command.")
 
