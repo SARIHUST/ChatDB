@@ -6,7 +6,7 @@ import re
 MYSQL_HOST = "localhost"
 MYSQL_USER = "dsci551"
 MYSQL_PASSWORD = "password"
-MYSQL_DATABASE = "551project"
+# MYSQL_DATABASE = "551project"
 # Connect to MySQL database
 def connect_to_mysql():
     try:
@@ -14,14 +14,60 @@ def connect_to_mysql():
             host=MYSQL_HOST,
             user=MYSQL_USER,
             password=MYSQL_PASSWORD,
-            database=MYSQL_DATABASE
+            # database=MYSQL_DATABASE
         )
         print("Connected to MySQL database.")
         return conn
     except mysql.connector.Error as e:
         print(f"Error connecting to MySQL: {e}")
         return None
+# Function to list all databases
+def list_databases(conn):
+    cursor = conn.cursor()
+    cursor.execute("SHOW DATABASES;")
+    databases = [db[0] for db in cursor.fetchall()]
+    return databases
 
+# Function to select a database
+def select_database(conn, database_name):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"USE {database_name};")
+        # print(f"Switched to database: {database_name}")
+        return True
+    except Exception as e:
+        print(f"Error selecting database {database_name}: {e}")
+        return False
+
+# Function to list all tables in the current database
+def list_tables(conn):
+    cursor = conn.cursor()
+    cursor.execute("SHOW TABLES;")
+    tables = [table[0] for table in cursor.fetchall()]
+    return tables
+
+# Function to get metadata for a table
+def get_table_metadata(conn, table_name):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"DESCRIBE {table_name};")
+        metadata = cursor.fetchall()
+        return metadata
+    except Exception as e:
+        print(f"Error describing table {table_name}: {e}")
+        return None
+
+# Function to get sample data from a table
+def get_sample_data(conn, table_name, limit=5):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"SELECT * FROM {table_name} LIMIT {limit};")
+        rows = cursor.fetchall()
+        column_names = [desc[0] for desc in cursor.description]
+        return column_names, rows
+    except Exception as e:
+        print(f"Error fetching sample data from table {table_name}: {e}")
+        return None, None
 # Retrieve all table names from the database
 def get_all_tables(conn):
     try:
@@ -99,27 +145,47 @@ def parse_input(user_input,conn):
             return "upload", match.group(1)
     elif user_input.lower() == "give sample queries":
         return "sample_queries", None
+    elif user_input.lower() == "list databases":
+        databases = list_databases(conn)
+        if databases:
+            return "list_databases", databases
+        return "error", "No databases found."
+
+    elif user_input.lower().startswith("use database "):
+        match = re.match(r"use database (\w+)", user_input, re.IGNORECASE)
+        if match:
+            db_name = match.group(1)
+            if select_database(conn, db_name):
+                return "use_database", f"Switched to database: {db_name}"
+            else:
+                return "error", f"Failed to switch to database: {db_name}"
+
+    elif user_input.lower() == "list tables":
+        tables = list_tables(conn)
+        if tables:
+            return "list_tables", tables
+        return "error", "No tables found in the current database."
+
     elif user_input.lower().startswith("introduce "):
         match = re.match(r"introduce (\w+)", user_input, re.IGNORECASE)
         if match:
             table_name = match.group(1)
-            # Check if the table exists
-            tables = get_all_tables(conn)
-            if table_name not in tables:
-                return "error", f"Table '{table_name}' does not exist."
-            
-            # Fetch metadata
             metadata = get_table_metadata(conn, table_name)
-            if not metadata:
-                return "error", f"Failed to retrieve metadata for table '{table_name}'."
-            
-            # Format metadata for output
-            result = f"Table: {table_name}\nColumns:\n"
-            for column in metadata:
-                col_name = column[0]  # Column name
-                col_type = column[1]  # Data type
-                result += f"  - {col_name} ({col_type})\n"
-            return "introduce", result
+            if metadata:
+                result = f"Table: {table_name}\nColumns:\n"
+                for column in metadata:
+                    col_name = column[0]
+                    col_type = column[1]
+                    result += f"  - {col_name} ({col_type})\n"
+                # Add sample data
+                column_names, rows = get_sample_data(conn, table_name)
+                if column_names and rows:
+                    result += "\nSample Data:\n"
+                    result += "\t".join(column_names) + "\n"
+                    for row in rows:
+                        result += "\t".join(map(str, row)) + "\n"
+                return "introduce", result
+            return "error", f"Table '{table_name}' does not exist or cannot be described."
     else:
         
         for query_type, pattern in query_templates.items(): 
@@ -196,7 +262,7 @@ def chatbot():
         print("Failed to connect to the database.")
         return
     
-    tables = get_all_tables(conn)  # Get all existing tables in the database
+    # tables = get_all_tables(conn)  # Get all existing tables in the database
     
     while True:
         user_input = input("\nYou: ")
@@ -218,8 +284,18 @@ def chatbot():
                     print(f"  SELECT column_name FROM {table_name} WHERE column_name = 'example';")
             else:
                 print("No tables found. Please upload a CSV file or check your database.")
+        elif action == "list_databases":
+            print("Available Databases:")
+            print("\n".join(data))
+        elif action == "use_database":
+            print(data)
+        elif action == "list_tables":
+            print("Available Tables:")
+            print("\n".join(data))
         elif action == "introduce":
             print(data)
+        elif action == "error":
+            print(f"Error: {data}")
         elif action in query_templates.keys():
             if tables:
                 table_name = tables[0]  # Default to the first table for simplicity
