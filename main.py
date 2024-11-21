@@ -1,6 +1,7 @@
 import pandas as pd
 import mysql.connector
 import re
+import random
 
 # MySQL connection details
 MYSQL_HOST = "localhost"
@@ -143,8 +144,20 @@ def parse_input(user_input,conn):
         match = re.match(r"upload (.+\.csv)", user_input)
         if match:
             return "upload", match.group(1)
-    elif user_input.lower() == "give sample queries":
-        return "sample_queries", None
+    elif "sample" in user_input.lower():
+            if "basic" in user_input.lower():
+                return "sample", "basic"
+            elif "where" in user_input.lower():
+                return "sample", "where"
+            elif "aggregation" in user_input.lower():
+                return "sample", "aggregation" 
+            elif "group by" in user_input.lower():
+                return "sample", "group by" 
+            elif "order by" in user_input.lower():
+                return "sample", "order by"
+            elif "join" in user_input.lower():
+                return "sample","join"
+            return "sample", None
     elif user_input.lower() == "list databases":
         databases = list_databases(conn)
         if databases:
@@ -193,6 +206,89 @@ def parse_input(user_input,conn):
                 return query_type, user_input
             
     return None, None
+
+# Fetch columns for a specific table
+def get_table_columns(conn, table_name):
+    cursor = conn.cursor()
+    cursor.execute(f"DESCRIBE {table_name};")
+    return [column[0] for column in cursor.fetchall()]
+def get_sample_rows(conn, table_name, limit=5):
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT * FROM {table_name} LIMIT {limit};")
+    return cursor.fetchall(), [desc[0] for desc in cursor.description]
+
+# Generate random queries
+def generate_sample_queries(conn, query_type=None, num_queries=5):
+    tables = get_all_tables(conn)
+    if not tables:
+        return []
+
+    queries = []
+    for _ in range(num_queries):
+        table = random.choice(tables)
+        columns = get_table_columns(conn, table)
+        if not columns:
+            continue
+
+        if query_type == "basic" or (query_type is None and random.random() < 0.2):
+            # Basic query
+            col = random.choice(columns)
+            query = f"SELECT {col} FROM {table} LIMIT 10;"
+
+        elif query_type == "where" or (query_type is None and random.random() < 0.3):
+            # Query with WHERE clause
+            col = random.choice(columns)
+            sample_rows, column_names = get_sample_rows(conn, table, limit=5)
+            if sample_rows:
+                random_row = random.choice(sample_rows)
+                condition_value = random_row[column_names.index(col)] if col in column_names else None
+                if condition_value is not None:
+                    query = f"SELECT * FROM {table} WHERE {col} = '{condition_value}' LIMIT 10;"
+                else:
+                    query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 10;"
+            else:
+                query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 10;"
+
+        elif query_type == "aggregation" or (query_type is None and random.random() < 0.2):
+            # Aggregation query
+            col = random.choice(columns)
+            agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
+            query = f"SELECT {agg_func}({col}) FROM {table};"
+
+        elif query_type == "group by" or (query_type is None and random.random() < 0.2):
+            # Group by query
+            if len(columns) > 1:
+                col1, col2 = random.sample(columns, 2)
+                query = f"SELECT {col1}, COUNT({col2}) FROM {table} GROUP BY {col1} LIMIT 10;"
+            else:
+                query = f"SELECT * FROM {table} LIMIT 10;"
+
+        elif query_type == "order by" or (query_type is None and random.random() < 0.1):
+            # Order by query
+            col = random.choice(columns)
+            order = random.choice(["ASC", "DESC"])
+            query = f"SELECT * FROM {table} ORDER BY {col} {order} LIMIT 10;"
+
+        elif query_type == "join" or (query_type is None and random.random() < 0.1):
+            # Join query (requires at least 2 tables)
+            if len(tables) > 1:
+                table2 = random.choice([t for t in tables if t != table])
+                columns2 = get_table_columns(conn, table2)
+                if columns2:
+                    col1 = random.choice(columns)
+                    col2 = random.choice(columns2)
+                    query = f"SELECT {table}.{col1}, {table2}.{col2} FROM {table} JOIN {table2} ON {table}.{col1} = {table2}.{col2} LIMIT 10;"
+                else:
+                    query = f"SELECT * FROM {table} LIMIT 10;"
+            else:
+                query = f"SELECT * FROM {table} LIMIT 10;"
+
+        else:
+            continue
+
+        # Add the generated query to the list
+        queries.append(query)
+    return queries
 
 # Process queries based on type
 def process_query(query_type, user_input, table_name):
@@ -274,16 +370,16 @@ def chatbot():
                 print("Failed to upload and process the CSV file.")
             else:
                 tables = get_all_tables(conn)  # Update table list
-        elif action == "sample_queries":
-            if tables:
-                print("\nSample Queries:")
-                for table_name in tables:
-                    print(f"Table: {table_name}")
-                    print(f"  SELECT * FROM {table_name} LIMIT 10;")
-                    print(f"  SELECT COUNT(*) FROM {table_name};")
-                    print(f"  SELECT column_name FROM {table_name} WHERE column_name = 'example';")
-            else:
-                print("No tables found. Please upload a CSV file or check your database.")
+        # elif action == "sample_":
+        #     if tables:
+        #         print("\nSample Queries:")
+        #         for table_name in tables:
+        #             print(f"Table: {table_name}")
+        #             print(f"  SELECT * FROM {table_name} LIMIT 10;")
+        #             print(f"  SELECT COUNT(*) FROM {table_name};")
+        #             print(f"  SELECT column_name FROM {table_name} WHERE column_name = 'example';")
+        #     else:
+        #         print("No tables found. Please upload a CSV file or check your database.")
         elif action == "list_databases":
             print("Available Databases:")
             print("\n".join(data))
@@ -296,6 +392,8 @@ def chatbot():
             print(data)
         elif action == "error":
             print(f"Error: {data}")
+        elif action ==  "sample":
+            print(generate_sample_queries(conn,query_type=data))
         elif action in query_templates.keys():
             if tables:
                 table_name = tables[0]  # Default to the first table for simplicity
