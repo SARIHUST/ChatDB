@@ -1,27 +1,62 @@
 import pandas as pd
 import mysql.connector
-from sqlalchemy import create_engine
 import re
 
-def read_csv_file(file_path):
-    """Read the CSV file and return a DataFrame."""
-    return pd.read_csv(file_path)
+# MySQL connection details
+MYSQL_HOST = "localhost"
+MYSQL_USER = "dsci551"
+MYSQL_PASSWORD = "password"
+MYSQL_DATABASE = "551project"
 
-def create_mysql_database(db_name, user, password, host='localhost'):
-    """Connect to MySQL server and create a new database."""
-    conn = mysql.connector.connect(user=user, password=password, host=host)
+# Connect to MySQL database
+def connect_to_mysql():
+    try:
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            database=MYSQL_DATABASE
+        )
+        print("Connected to MySQL database.")
+        return conn
+    except mysql.connector.Error as e:
+        print(f"Error connecting to MySQL: {e}")
+        return None
+
+# Create table and load CSV into MySQL
+def upload_csv_to_mysql(file_path):
+    conn = connect_to_mysql()
+    if not conn:
+        return None, None
+
+    table_name = file_path.split("/")[-1].replace(".csv", "")
+    df = pd.read_csv(file_path)
+
+    # Create table query
+    create_table_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
+    for col in df.columns:
+        create_table_query += f"{col} VARCHAR(255), "
+    create_table_query = create_table_query.rstrip(", ") + ");"
+
     cursor = conn.cursor()
-    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
-    conn.close()
-    print(f"Database '{db_name}' is ready.")
+    try:
+        cursor.execute(create_table_query)
+        conn.commit()
 
-def create_table_and_insert_data(df, db_name, table_name, user, password, host='localhost'):
-    """Create a table in MySQL database from the DataFrame structure and insert data."""
-    engine = create_engine(f"mysql+mysqlconnector://{user}:{password}@{host}/{db_name}")
-    df.to_sql(table_name, engine, if_exists='replace', index=False)
-    print(f"Data inserted into '{table_name}' table in '{db_name}' database.")
+        # Insert data into the table
+        for _, row in df.iterrows():
+            columns = ", ".join(row.index)
+            placeholders = ", ".join(["%s"] * len(row))
+            insert_query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders});"
+            cursor.execute(insert_query, tuple(row.values))
+        conn.commit()
+        print(f"Uploaded {file_path} as table '{table_name}'.")
+        return conn, table_name
+    except Exception as e:
+        print(f"Error uploading CSV: {e}")
+        return None, None
 
-# Define query templates and natural language patterns
+# Query templates
 query_templates = {
     "basic": r"list|show all (\w+)",
     "where": r"(find|get|show) (\w+) where (\w+) (is|=|contains|>|<) (.+)",
@@ -32,97 +67,124 @@ query_templates = {
     "order_by": r"(list|show) (\w+) ordered by (\w+) (asc|desc)?"
 }
 
-def generate_query(nl_query, table_name):
-    """Generate SQL query based on natural language input."""
-    nl_query = nl_query.lower()
-    for query_type, pattern in query_templates.items():
-        match = re.search(pattern, nl_query)
+# Parse user input
+def parse_input(user_input):
+    if user_input.startswith("upload "):
+        match = re.match(r"upload (.+\.csv)", user_input)
         if match:
-            if query_type == "basic":
-                column = match.group(1)
-                return f"SELECT {column} FROM {table_name};"
-            elif query_type == "where":
-                column, condition_column, operator, value = match.groups()[1:]
-                if operator == "contains":
-                    return f"SELECT {column} FROM {table_name} WHERE {condition_column} LIKE '%{value}%';"
-                return f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} {value};"
-            elif query_type == "aggregation":
-                agg_func, column = match.groups()
-                return f"SELECT {agg_func.upper()}({column}) FROM {table_name};"
-            elif query_type == "group_by_aggregation":
-                agg_func, column, group_column = match.groups()
-                return f"SELECT {group_column}, {agg_func.upper()}({column}) FROM {table_name} GROUP BY {group_column};"
-            elif query_type == "group_by_having":
-                column, agg_func, condition_column, threshold = match.groups()[1:]
-                return f"SELECT {condition_column}, {agg_func.upper()}({column}) AS total FROM {table_name} GROUP BY {condition_column} HAVING total > {threshold};"
-            elif query_type == "join":
-                column1, column2, join_condition1, join_condition2 = match.groups()
-                table1, table2 = column1.split(".")[0], column2.split(".")[0]
-                return f"SELECT {column1}, {column2} FROM {table1} JOIN {table2} ON {join_condition1} = {join_condition2};"
-            elif query_type == "order_by":
-                column, order_column, order = match.groups()[1:]
-                order = order or "ASC"
-                return f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
-    return "I couldn't understand your query."
+            return "upload", match.group(1)
+    elif user_input.lower() == "give sample queries":
+        return "sample_queries", None
+    else:
+        for query_type, pattern in query_templates.items():
+            if re.search(pattern, user_input, re.IGNORECASE):
+                return query_type, user_input
+    return None, None
 
-def execute_query(query, db_name, user, password, host='localhost'):
-    """Execute the generated SQL query and return the result."""
-    conn = mysql.connector.connect(user=user, password=password, host=host, database=db_name)
+# Process queries based on type
+def process_query(query_type, user_input, table_name):
+    match = None
+    if query_type == "basic":
+        match = re.search(query_templates["basic"], user_input, re.IGNORECASE)
+        column = match.group(1)
+        sql = f"SELECT {column} FROM {table_name};"
+    elif query_type == "where":
+        match = re.search(query_templates["where"], user_input, re.IGNORECASE)
+        column, condition_column, operator, value = match.group(2), match.group(3), match.group(4), match.group(5)
+        operator = "=" if operator == "is" else operator  # Replace "is" with "="
+        sql = f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} '{value}';"
+        print(sql)
+    elif query_type == "aggregation":
+        match = re.search(query_templates["aggregation"], user_input, re.IGNORECASE)
+        func, column = match.group(1), match.group(2)
+        sql = f"SELECT {func.upper()}({column}) FROM {table_name};"
+    elif query_type == "group_by_aggregation":
+        match = re.search(query_templates["group_by_aggregation"], user_input, re.IGNORECASE)
+        func, column, group_by_column = match.group(1), match.group(2), match.group(3)
+        sql = f"SELECT {group_by_column}, {func.upper()}({column}) FROM {table_name} GROUP BY {group_by_column};"
+    elif query_type == "group_by_having":
+        match = re.search(query_templates["group_by_having"], user_input, re.IGNORECASE)
+        column, func, agg_column, value = match.group(2), match.group(3), match.group(4), match.group(5)
+        sql = f"""
+            SELECT {column}, {func.upper()}({agg_column}) AS agg_value 
+            FROM {table_name} 
+            GROUP BY {column} 
+            HAVING agg_value > {value};
+        """
+    elif query_type == "join":
+        match = re.search(query_templates["join"], user_input, re.IGNORECASE)
+        col1, col2, condition1, condition2 = match.group(2), match.group(3), match.group(4), match.group(5)
+        table1, column1 = col1.split(".")
+        table2, column2 = col2.split(".")
+        sql = f"""
+            SELECT {col1}, {col2} 
+            FROM {table1} 
+            JOIN {table2} ON {condition1} = {condition2};
+        """
+    elif query_type == "order_by":
+        match = re.search(query_templates["order_by"], user_input, re.IGNORECASE)
+        column, order_column, order = match.group(2), match.group(3), match.group(4) or "ASC"
+        sql = f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
+    else:
+        sql = None
+    
+    return sql
+
+# Execute an SQL query and fetch results
+def execute_query(conn, query):
     cursor = conn.cursor()
-    cursor.execute(query)
-    result = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    conn.close()
-    return pd.DataFrame(result, columns=columns)
+    try:
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results
+    except Exception as e:
+        print(f"Error executing query: {e}")
+        return None
 
-def main():
-    # Prompt for CSV file path and database/table details
-    file_path = input("Please provide the path to your CSV file: ")
-    db_name = input("Enter a name for the MySQL database: ")
-    table_name = input("Enter a name for the table to create from the CSV file: ")
-    user = input("Enter your MySQL username: ")
-    password = input("Enter your MySQL password: ")
-    host = input("Enter your MySQL host (default is 'localhost'): ") or 'localhost'
-
-    # Step 1: Read the CSV file
-    print("Loading the CSV file data...")
-    df = read_csv_file(file_path)
-
-    # Step 2: Create the MySQL database
-    print("Setting up the MySQL database...")
-    create_mysql_database(db_name, user, password, host)
-
-    # Step 3: Create table and insert data into MySQL
-    print("Creating table and inserting data into MySQL...")
-    create_table_and_insert_data(df, db_name, table_name, user, password, host)
-
-    print("\nThe database is ready! You can now ask questions about your data.")
-    print("Type 'exit' to end the session.")
-
-    # Chat loop
+# Main chatbot loop
+def chatbot():
+    print("Hello! I'm your database assistant. You can upload CSV files, ask for sample queries, or ask natural language questions about your data.")
+    conn = None  # Global connection object for uploaded databases
+    table_name = None
+    
     while True:
-        nl_query = input("\nHow can I help you? ")
-        if nl_query.lower() == "exit":
-            print("Goodbye!")
-            break
-
-        # Generate SQL query based on natural language
-        sql_query = generate_query(nl_query, table_name)
-        if "I couldn't understand" in sql_query:
-            print(sql_query)
-            continue
-
-        print(f"SQL Query generated: {sql_query}")
-
-        # Execute the SQL query and display the result
-        try:
-            result_df = execute_query(sql_query, db_name, user, password, host)
-            if not result_df.empty:
-                print(result_df)
+        user_input = input("\nYou: ")
+        action, data = parse_input(user_input)
+        
+        if action == "upload":
+            conn, table_name = upload_csv_to_mysql(data)
+            if not conn:
+                print("Failed to upload and process the CSV file.")
+        elif action == "sample_queries":
+            if conn and table_name:
+                sample_queries = [
+                    f"SELECT * FROM {table_name} LIMIT 10;",
+                    f"SELECT COUNT(*) FROM {table_name};",
+                    f"SELECT column_name FROM {table_name} WHERE column_name = 'example';"
+                ]
+                print("\nSample Queries:")
+                for query in sample_queries:
+                    print(query)
             else:
-                print("No results found.")
-        except Exception as e:
-            print(f"An error occurred while executing the query: {e}")
+                print("No database uploaded yet. Please upload a CSV file first.")
+        elif action in query_templates.keys():
+            if conn and table_name:
+                sql_query = process_query(action, data, table_name)
+                if sql_query:
+                    results = execute_query(conn, sql_query)
+                    if results:
+                        print("\nQuery Results:")
+                        for row in results:
+                             print(" , ".join(map(str, row))) 
+                    else:
+                        print("No results found or an error occurred.")
+                else:
+                    print("Could not generate a valid SQL query. Please try again.")
+            else:
+                print("No database uploaded yet. Please upload a CSV file first.")
+        else:
+            print("Invalid command.")
 
+# Run the chatbot
 if __name__ == "__main__":
-    main()
+    chatbot()
