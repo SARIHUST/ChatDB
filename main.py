@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 import mysql.connector
 import re
 import random
@@ -40,17 +41,23 @@ def connect_to_mongodb():
         print(f"Error connecting to MongoDB: {e}")
         return None
 
-def upload_data_mongodb(client, database_name, collection_name, file_path):
+def upload_data_mongodb(client, database_name, file_path):
+    collection_name = os.path.splitext(os.path.basename(file_path))[0]
     db = client[database_name]
     collection = db[collection_name]
     try:
         if file_path.endswith(".json"):
-            with open(file_path, 'r') as file:
-                data = json.load(file)
-                if isinstance(data, list):
-                    collection.insert_many(data)
-                else:
-                    collection.insert_one(data)
+            with open(file_path, "r") as file:
+                for line in file:
+                    line = line.strip()  
+                    if not line:  
+                        continue
+                    try:
+                        document = json.loads(line)  
+                        collection.insert_one(document)  
+                    except json.JSONDecodeError as e:
+                        print(f"Invalid JSON object in line: {line}")
+                        print(f"Error: {e}")
         elif file_path.endswith(".csv"):
             data = pd.read_csv(file_path)
             collection.insert_many(data.to_dict("records"))
@@ -71,30 +78,52 @@ def get_collection_metadata(client, database_name, collection_name):
     return [], None
 
 
-def generate_sample_queries_for_mongodb(client, database_name, collection_name, query_type=None):
+def generate_sample_queries_for_mongodb(client, database_name, query_type=None,num_queries = 5):
     db = client[database_name]
-    collection = db[collection_name]
+    collections = db.list_collection_names()
+    if not collections:
+        print("No collections found in the database.")
+        return None
     queries = []
+    for _ in range(num_queries):
+        if query_type == "basic":
+            # 随机选择一个集合
+            collection_name = random.choice(collections)
+            collection = db[collection_name]
+            sample_doc = collection.find_one()
+            if sample_doc:
+                random_field = random.choice(list(sample_doc.keys()))
+                queries.append({"find": collection_name, "projection": {random_field: 1}})
 
-    if query_type == "filter":
-        sample_doc = collection.find_one()
-        if sample_doc:
-            key = random.choice(list(sample_doc.keys()))
-            value = sample_doc[key]
-            queries.append({"find": collection_name, "filter": {key: value}})
-    elif query_type == "projection":
-        sample_doc = collection.find_one()
-        if sample_doc:
-            keys = random.sample(list(sample_doc.keys()), min(2, len(sample_doc.keys())))
-            projection = {key: 1 for key in keys}
-            queries.append({"find": collection_name, "projection": projection})
-    elif query_type == "aggregation":
-        sample_doc = collection.find_one()
-        if sample_doc:
-            key = random.choice(list(sample_doc.keys()))
-            queries.append({"aggregate": collection_name, "pipeline": [{"$group": {"_id": f"${key}", "count": {"$sum": 1}}}]})
+        elif query_type == "where":
+            # 随机选择一个集合并生成 WHERE 查询
+            collection_name = random.choice(collections)
+            collection = db[collection_name]
+            sample_doc = collection.find_one()
+            if sample_doc:
+                random_field = random.choice(list(sample_doc.keys()))
+                random_value = sample_doc[random_field]
+                queries.append({"find": collection_name, "filter": {random_field: random_value}})
+
+        elif query_type == "aggregation":
+            # 随机选择一个集合并生成聚合查询
+            collection_name = random.choice(collections)
+            collection = db[collection_name]
+            sample_doc = collection.find_one()
+            if sample_doc:
+                random_field = random.choice(list(sample_doc.keys()))
+                queries.append({
+                    "aggregate": collection_name,
+                    "pipeline": [{"$group": {"_id": f"${random_field}", "count": {"$sum": 1}}}]
+                })
+
+        else:
+            # 默认生成 basic 查询
+            collection_name = random.choice(collections)
+            queries.append({"find": collection_name, "limit": 10})
+
     return queries
-#Below are functions for mysql!!!!!!!!!
+#Below are functions for mysql AND QUERY PARSING
 # Function to list all databases
 def list_databases(conn):
     cursor = conn.cursor()
@@ -212,6 +241,7 @@ query_templates = {
 
 # Parse user input
 def parse_input(user_input,conn):
+    global current_database
     if "mysql" in user_input.lower():
         current_database = "mysql"
         return "mysql" , None
@@ -219,9 +249,14 @@ def parse_input(user_input,conn):
         current_database = "mongodb"
         return "mongodb", None
     elif user_input.startswith("upload "):
-        match = re.match(r"upload (.+\.csv)", user_input)
-        if match:
-            return "upload", match.group(1)
+        if current_database=="mysql":
+            match = re.match(r"upload (.+\.csv)", user_input)
+            if match:
+                return "upload", match.group(1)
+        else:
+            match = re.match(r"upload (.+\.json)", user_input)
+            if match:
+                return "upload", match.group(1)
     elif "sample" in user_input.lower():
             if "basic" in user_input.lower():
                 return "sample", "basic"
@@ -235,6 +270,10 @@ def parse_input(user_input,conn):
                 return "sample", "order by"
             elif "join" in user_input.lower():
                 return "sample","join"
+            elif "filter" in user_input.lower():
+                return "sample","filter"     
+            elif "project" in user_input.lower() or "projection" in user_input.lower():
+                return "sample", "projection"      
             return "sample", None
 
 
@@ -417,6 +456,7 @@ def execute_query(conn, query):
 
 # Main chatbot loop
 def chatbot():
+    global current_database
     print("Hello! I'm your database assistant. You can upload CSV files, ask for sample queries, or ask natural language questions about your data.")
     conn = connect_to_mysql()
     client = connect_to_mongodb()
@@ -444,6 +484,9 @@ def chatbot():
                     print("Failed to upload and process the CSV file.")
                 else:
                     tables = get_all_tables(conn)  # Update table list
+            else:
+                upload_data_mongodb(client=client,database_name="sample_analytics",file_path=data)
+
         # elif action == "list_databases":
         #     print("Available Databases:")
         #     print("\n".join(data))
@@ -457,7 +500,10 @@ def chatbot():
         elif action == "error":
             print(f"Error: {data}")
         elif action ==  "sample":
-            print(generate_sample_queries(conn,query_type=data))
+            if current_database == "mysql":
+                print(generate_sample_queries(conn,query_type=data))
+            else:
+                print(generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="sample_analytics"))
         elif action in query_templates.keys():
             
             if tables:
