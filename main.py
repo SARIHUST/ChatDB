@@ -2,26 +2,99 @@ import pandas as pd
 import mysql.connector
 import re
 import random
+from pymongo import MongoClient
+from prettytable import PrettyTable
+import json
+import warnings
+from cryptography.utils import CryptographyDeprecationWarning
 
+warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 # MySQL connection details
 MYSQL_HOST = "localhost"
 MYSQL_USER = "dsci551"
 MYSQL_PASSWORD = "password"
-# MYSQL_DATABASE = "551project"
+current_database = "mysql"
+MYSQL_DATABASE = "551project"
 # Connect to MySQL database
+
+ATLAS_URI = "mongodb+srv://xyxy:DSCI551@cluster48297.lfyhked.mongodb.net/?retryWrites=true&w=majority&appName=Cluster48297"
 def connect_to_mysql():
     try:
         conn = mysql.connector.connect(
             host=MYSQL_HOST,
             user=MYSQL_USER,
             password=MYSQL_PASSWORD,
-            # database=MYSQL_DATABASE
+            database=MYSQL_DATABASE
         )
-        print("Connected to MySQL database.")
+        # print("Connected to MySQL database.")
         return conn
     except mysql.connector.Error as e:
         print(f"Error connecting to MySQL: {e}")
         return None
+def connect_to_mongodb():
+    try:
+        client = MongoClient(ATLAS_URI)
+        # print("Connected to MongoDB Atlas.")
+        return client
+    except Exception as e:
+        print(f"Error connecting to MongoDB: {e}")
+        return None
+
+def upload_data_mongodb(client, database_name, collection_name, file_path):
+    db = client[database_name]
+    collection = db[collection_name]
+    try:
+        if file_path.endswith(".json"):
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+                if isinstance(data, list):
+                    collection.insert_many(data)
+                else:
+                    collection.insert_one(data)
+        elif file_path.endswith(".csv"):
+            data = pd.read_csv(file_path)
+            collection.insert_many(data.to_dict("records"))
+        print(f"Data uploaded to {database_name}.{collection_name} successfully!")
+    except Exception as e:
+        print(f"Error uploading data: {e}")
+
+def list_collections(client, database_name):
+    db = client[database_name]
+    return db.list_collection_names()
+
+def get_collection_metadata(client, database_name, collection_name):
+    db = client[database_name]
+    collection = db[collection_name]
+    sample_doc = collection.find_one()
+    if sample_doc:
+        return list(sample_doc.keys()), sample_doc
+    return [], None
+
+
+def generate_sample_queries_for_mongodb(client, database_name, collection_name, query_type=None):
+    db = client[database_name]
+    collection = db[collection_name]
+    queries = []
+
+    if query_type == "filter":
+        sample_doc = collection.find_one()
+        if sample_doc:
+            key = random.choice(list(sample_doc.keys()))
+            value = sample_doc[key]
+            queries.append({"find": collection_name, "filter": {key: value}})
+    elif query_type == "projection":
+        sample_doc = collection.find_one()
+        if sample_doc:
+            keys = random.sample(list(sample_doc.keys()), min(2, len(sample_doc.keys())))
+            projection = {key: 1 for key in keys}
+            queries.append({"find": collection_name, "projection": projection})
+    elif query_type == "aggregation":
+        sample_doc = collection.find_one()
+        if sample_doc:
+            key = random.choice(list(sample_doc.keys()))
+            queries.append({"aggregate": collection_name, "pipeline": [{"$group": {"_id": f"${key}", "count": {"$sum": 1}}}]})
+    return queries
+#Below are functions for mysql!!!!!!!!!
 # Function to list all databases
 def list_databases(conn):
     cursor = conn.cursor()
@@ -139,8 +212,13 @@ query_templates = {
 
 # Parse user input
 def parse_input(user_input,conn):
-    
-    if user_input.startswith("upload "):
+    if "mysql" in user_input.lower():
+        current_database = "mysql"
+        return "mysql" , None
+    elif "mongodb" in user_input.lower():
+        current_database = "mongodb"
+        return "mongodb", None
+    elif user_input.startswith("upload "):
         match = re.match(r"upload (.+\.csv)", user_input)
         if match:
             return "upload", match.group(1)
@@ -158,20 +236,7 @@ def parse_input(user_input,conn):
             elif "join" in user_input.lower():
                 return "sample","join"
             return "sample", None
-    elif user_input.lower() == "list databases":
-        databases = list_databases(conn)
-        if databases:
-            return "list_databases", databases
-        return "error", "No databases found."
 
-    elif user_input.lower().startswith("use database "):
-        match = re.match(r"use database (\w+)", user_input, re.IGNORECASE)
-        if match:
-            db_name = match.group(1)
-            if select_database(conn, db_name):
-                return "use_database", f"Switched to database: {db_name}"
-            else:
-                return "error", f"Failed to switch to database: {db_name}"
 
     elif user_input.lower() == "list tables":
         tables = list_tables(conn)
@@ -354,6 +419,7 @@ def execute_query(conn, query):
 def chatbot():
     print("Hello! I'm your database assistant. You can upload CSV files, ask for sample queries, or ask natural language questions about your data.")
     conn = connect_to_mysql()
+    client = connect_to_mongodb()
     if not conn:
         print("Failed to connect to the database.")
         return
@@ -363,28 +429,26 @@ def chatbot():
     while True:
         user_input = input("\nYou: ")
         action, data = parse_input(user_input,conn)
-        
-        if action == "upload":
-            conn, table_name = upload_csv_to_mysql(data)
-            if not conn:
-                print("Failed to upload and process the CSV file.")
-            else:
-                tables = get_all_tables(conn)  # Update table list
-        # elif action == "sample_":
-        #     if tables:
-        #         print("\nSample Queries:")
-        #         for table_name in tables:
-        #             print(f"Table: {table_name}")
-        #             print(f"  SELECT * FROM {table_name} LIMIT 10;")
-        #             print(f"  SELECT COUNT(*) FROM {table_name};")
-        #             print(f"  SELECT column_name FROM {table_name} WHERE column_name = 'example';")
-        #     else:
-        #         print("No tables found. Please upload a CSV file or check your database.")
-        elif action == "list_databases":
-            print("Available Databases:")
-            print("\n".join(data))
-        elif action == "use_database":
-            print(data)
+        if user_input.lower() == "exit":
+            print("Goodbye!")
+            break
+        elif (action == "mysql"):
+            print("You are now asking questions about mysql")
+            
+        elif (action == "mongodb"):
+            print("You are now asking questions about mongodb")
+        elif action == "upload":
+            if current_database == "mysql":
+                conn, table_name = upload_csv_to_mysql(data)
+                if not conn:
+                    print("Failed to upload and process the CSV file.")
+                else:
+                    tables = get_all_tables(conn)  # Update table list
+        # elif action == "list_databases":
+        #     print("Available Databases:")
+        #     print("\n".join(data))
+        # elif action == "use_database":
+        #     print(data)
         elif action == "list_tables":
             print("Available Tables:")
             print("\n".join(data))
@@ -395,6 +459,7 @@ def chatbot():
         elif action ==  "sample":
             print(generate_sample_queries(conn,query_type=data))
         elif action in query_templates.keys():
+            
             if tables:
                 table_name = tables[0]  # Default to the first table for simplicity
                 sql_query = process_query(action, data, table_name)
