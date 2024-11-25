@@ -349,12 +349,17 @@ def parse_input(user_input,conn):
 def get_table_columns(conn, table_name):
     cursor = conn.cursor()
     cursor.execute(f"DESCRIBE {table_name};")
-    return [column[0] for column in cursor.fetchall()]
+    columns = cursor.fetchall()
+    column_types = {column[0]: column[1].lower() for column in columns}
+    return [column[0] for column in columns], column_types
 def get_sample_rows(conn, table_name, limit=5):
     cursor = conn.cursor()
     cursor.execute(f"SELECT * FROM {table_name} LIMIT {limit};")
     return cursor.fetchall(), [desc[0] for desc in cursor.description]
 
+def is_numeric_column(column_name, column_types):
+    data_type = column_types.get(column_name, "").lower()
+    return any(keyword in data_type for keyword in ["int", "float", "double", "decimal"])
 # Generate random queries
 def generate_sample_queries(conn, query_type=None, num_queries=5):
     tables = get_all_tables(conn)
@@ -364,63 +369,72 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
     queries = []
     for _ in range(num_queries):
         table = random.choice(tables)
-        columns = get_table_columns(conn, table)
+        columns, data_types = get_table_columns(conn, table)
         if not columns:
             continue
 
         if query_type == "basic" or (query_type is None and random.random() < 0.2):
             # Basic query
             col = random.choice(columns)
-            query = f"SELECT {col} FROM {table} LIMIT 10;"
+            query = f"SELECT {col} FROM {table} LIMIT 5;"
 
         elif query_type == "where" or (query_type is None and random.random() < 0.3):
             # Query with WHERE clause
             col = random.choice(columns)
+
             sample_rows, column_names = get_sample_rows(conn, table, limit=5)
             if sample_rows:
                 random_row = random.choice(sample_rows)
+                
                 condition_value = random_row[column_names.index(col)] if col in column_names else None
-                # TODO: check condition_value type and modify the query
+                if not is_numeric_column(col,data_types):
+                    condition_value = f"'{condition_value}'"
+                # check condition_value type and modify the query
                 if condition_value is not None:
-                    query = f"SELECT * FROM {table} WHERE {col} = '{condition_value}' LIMIT 10;"
+                    query = f"SELECT * FROM {table} WHERE {col} = {condition_value} LIMIT 5;"
                 else:
-                    query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 10;"
+                    query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 5;"
             else:
-                query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 10;"
+                query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 5;"
 
         elif query_type == "aggregation" or (query_type is None and random.random() < 0.2):
             # Aggregation query
-            # TODO: except count, all others should be numerical
-            col = random.choice(columns)
-            agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
+            # except count, all others should be numerical
+            random_index = random.randint(0, len(columns) - 1)
+            col = columns[random_index]
+            agg_func = "COUNT"
+            if is_numeric_column(col,data_types):
+                agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
             query = f"SELECT {agg_func}({col}) FROM {table};"
 
         elif query_type == "group by" or (query_type is None and random.random() < 0.2):
             # Group by query
-            # TODO: check the type of col2, if numerical we can choose sum, avg, max, min
+            # check the type of col2, if numerical we can choose sum, avg, max, min
             if len(columns) > 1:
                 col1, col2 = random.sample(columns, 2)
-                query = f"SELECT {col1}, COUNT({col2}) FROM {table} GROUP BY {col1} LIMIT 10;"
+                agg_func = "COUNT"
+                if is_numeric_column(col2,data_types):
+                    agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
+                query = f"SELECT {col1}, {agg_func}({col2}) FROM {table} GROUP BY {col1} LIMIT 5;"
             else:
-                query = f"SELECT * FROM {table} LIMIT 10;"
+                query = f"SELECT * FROM {table} LIMIT 5;"
 
         elif query_type == "order by" or (query_type is None and random.random() < 0.1):
             # Order by query
             col = random.choice(columns)
             order = random.choice(["ASC", "DESC"])
-            query = f"SELECT * FROM {table} ORDER BY {col} {order} LIMIT 10;"
+            query = f"SELECT * FROM {table} ORDER BY {col} {order} LIMIT 5;"
 
         elif query_type == "join" or (query_type is None and random.random() < 0.1):
             # Join query (requires at least 2 tables)
-            # TODO: add 2 tables, change the query to rename the tables t1 and t2
-            if len(tables) > 1 or True:
-                table2 = random.choice([t for t in tables])
-                # table2 = random.choice([t for t in tables if t != table])
-                columns2 = get_table_columns(conn, table2)
+            if len(tables) > 1:
+                #table2 = random.choice([t for t in tables])
+                table2 = random.choice([t for t in tables if t != table])
+                columns2, types = get_table_columns(conn, table2)
                 if columns2:
                     col1 = random.choice(columns)
                     col2 = random.choice(columns2)
-                    query = f"SELECT {table}.{col1}, {table2}.{col2} FROM {table} JOIN {table2} ON {table}.{col1} = {table2}.{col2} LIMIT 10;"
+                    query = f"SELECT t1.{col1}, t2.{col2} FROM {table} t1 JOIN {table2} t2 ON t1.{col1} = t2.{col2} LIMIT 10;"
                 else:
                     query = f"SELECT * FROM {table} LIMIT 10;"
             else:
@@ -540,13 +554,30 @@ def chatbot():
             print(f"Error: {data}")
         elif action ==  "sample":
             if current_database == "mysql":
-                print(generate_sample_queries(conn,query_type=data))
+                sample_queires = (generate_sample_queries(conn,query_type=data))
+                print("HERE ARE 5 SAMPLES:\n")
+                print("\n".join(sample_queires))
+                execute_sample = input("Do you want to execute these samples?\nPlease enter the index of the sample (1-5) to execute and see result.Enter anything else to ask other questions:")
+
+                while execute_sample in ["1","2","3","4","5"]:
+                    execute_sample = int(execute_sample)
+                   
+                    results=execute_query(conn,sample_queires[execute_sample-1])
+                    print("THIS IS THE QUERY:\n")
+                    print(sample_queires[execute_sample-1])
+                    print("\nTHIS IS THE RESULT:\n")
+                    print(results)
+                    execute_sample = input("\nDo you want to execute more samples?\nPlease enter the index of the sample (1-5) to execute and see result.Enter anything else to ask other questions:")
+                    
             else:
-                print(generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="sample_analytics"))
-            # TODO: add input for execution
+                sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="sample_analytics"))
+                print("\n".join(sample_queires))
+            # TODO: add input for execution 
+            # DONE FOR MYSQL
             # user_sub_input = input()
             # while user_sub_input in [1, 2, ...]:
             #  xxx
+            # THIS IS ACHIEVED IN THE MAIN LOOP
             
         elif action in query_templates.keys():
             
