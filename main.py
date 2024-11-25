@@ -41,6 +41,37 @@ def connect_to_mongodb():
     except Exception as e:
         print(f"Error connecting to MongoDB: {e}")
         return None
+    
+def helper(is_mysql=True):
+    mysql_help_instructions = [
+        "upload csv -> upload your data to the database, e.g., upload courses.csv",
+        "list tables -> list the available tables in the database",
+        "introduce tablename -> introduce a certain table in the database, e.g., introduce students",
+        "sample -> general sample queries",
+        "sample basic -> basic 'select from' sample queries",
+        "sample distinct -> sample queries utilizing distinct",
+        "sample where -> sample queries utilizing where",
+        "sample aggregation -> sample queries utilizing aggregation ",
+        "sample group by -> sample queries utlizing group by",
+        "sample order by -> sample queries utilizing order by",
+        "sample join -> sample queries utilizing join",
+        "ask questions about basic queries, e.g., show all StudentID",
+        "ask questions about where queries, e.g., find firstname, lastname where studentid is 1",
+        "ask questions about aggregation queries, e.g., maximum of score",
+        "ask questions about group by queries, e.g., maximum score by studentId",
+        "ask questions about having queries, e.g., find studentId with average score larger than 90",
+        "ask questions about order by queries, e.g., show studentId, firstname ordered by firstname in ascending order",
+        "ask questions about join queries, e.g., find students: firstname, lastname and enrollment: courseId, score where students.studentId = enrollment.studentId",
+    ]
+
+    if is_mysql:
+        help_instructions = mysql_help_instructions
+    else:
+        help_instructions = []
+    print("Here are the commands you can input:")
+    for i in range(len(help_instructions)):
+        instruction = help_instructions[i]
+        print(f"\t{i+1}. {instruction}")
 
 def upload_data_mongodb(client, database_name, file_path):
     collection_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -175,7 +206,7 @@ def get_all_tables(conn):
         cursor = conn.cursor()
         cursor.execute("SHOW TABLES;")
         tables = [table[0] for table in cursor.fetchall()]
-        print("Available tables in the mysql database:", tables)
+        # print("Available tables in the mysql database:", tables)
         return tables
     except Exception as e:
         print(f"Error retrieving tables: {e}")
@@ -270,7 +301,7 @@ query_templates = {
     "group_by_having_2": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+(?:less|smaller)\s+than\s+(\d+)",
     "group_by_having_3": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+equal\s+to\s+(\d+)",
     "join": r"(find)\s+(\w+:\s+(?:\w+\s*(?:,\s*\w+\s*)*?))\s+and\s+(\w+:\s+(?:\w+\s*(?:,\s*\w+\s*)*?))\s+where\s+(\w+\.\w+)\s*=\s*(\w+\.\w+)",
-    "order_by": r"(list|show)\s+((?:\w+\s*,?\s*)+)\s+ordered\s+by\s+(\w+)\s+(asc|desc)?"
+    "order_by": r"(list|show)\s+((?:\w+\s*,\s*)*\w+)\s+ordered\s+by\s+(\w+)\s+in\s+(ascending|descending)\s+order"
 }
 
 # Parse user input
@@ -278,10 +309,10 @@ def parse_input(user_input,conn):
     global current_database
     if "mysql" in user_input.lower():
         current_database = "mysql"
-        return "mysql" , None
+        return "mysql" , "is_mysql"
     elif "mongodb" in user_input.lower():
         current_database = "mongodb"
-        return "mongodb", None
+        return "mongodb", "is_mongodb"
     elif user_input.startswith("upload "):
         if current_database=="mysql":
             match = re.match(r"upload (.+\.csv)", user_input)
@@ -294,6 +325,8 @@ def parse_input(user_input,conn):
     elif "sample" in user_input.lower():
         if "basic" in user_input.lower():
             return "sample", "basic"
+        elif "distinct" in user_input.lower():
+            return "sample", "distinct"
         elif "where" in user_input.lower():
             return "sample", "where"
         elif "aggregation" in user_input.lower():
@@ -307,8 +340,10 @@ def parse_input(user_input,conn):
         elif "filter" in user_input.lower():
             return "sample","filter"     
         elif "project" in user_input.lower() or "projection" in user_input.lower():
-            return "sample", "projection"      
-        return "sample", None
+            return "sample", "projection"   
+        elif user_input.lower() == "sample":
+            return "sample", None
+        return None, None
 
     elif user_input.lower() == "list tables":
         tables = list_tables(conn)
@@ -331,13 +366,14 @@ def parse_input(user_input,conn):
                 column_names, rows = get_sample_data(conn, table_name)
                 if column_names and rows:
                     result += "\nSample Data:\n"
-                    result += "\t".join(column_names) + "\n"
+                    result += ", ".join(column_names) + "\n"
                     for row in rows:
-                        result += "\t".join(map(str, row)) + "\n"
+                        result += ", ".join(map(str, row)) + "\n"
                 return "introduce", result
             return "error", f"Table '{table_name}' does not exist or cannot be described."
     else:   # NLP
         for query_type, pattern in query_templates.items():
+            # print(query_type)
             if query_type == "where" and "where" not in user_input:
                 continue
             if re.search(pattern, user_input, re.IGNORECASE):
@@ -360,32 +396,67 @@ def get_sample_rows(conn, table_name, limit=5):
 def is_numeric_column(column_name, column_types):
     data_type = column_types.get(column_name, "").lower()
     return any(keyword in data_type for keyword in ["int", "float", "double", "decimal"])
-# Generate random queries
+
+# Define meaningful join relationships -> hand crafted
+JOIN_RELATIONSHIPS = {
+    "advisors": {
+        "advisorId": [("students", "advisorId"), ("instruct", "instructorId")]
+    },
+    "students": {
+        "studentId": [("enrollment", "studentId")],
+        "advisorId": [("advisors", "advisorId")]
+    },
+    "courses": {
+        "courseId": [("enrollment", "courseId"), ("instruct", "courseId")]
+    },
+    "enrollment": {
+        "studentId": [("students", "studentId")],
+        "courseId": [("courses", "courseId")]
+    },
+    "instruct": {
+        "courseId": [("courses", "courseId")],
+        "instructorId": [("advisors", "advisorId")]
+    }
+}
+
 def generate_sample_queries(conn, query_type=None, num_queries=5):
     tables = get_all_tables(conn)
     if not tables:
         return []
 
     queries = []
-    for _ in range(num_queries):
+    query_types = [
+        "basic", "where", "aggregation", "group by", "order by", "join", "distinct"
+    ] if query_type is None else [query_type]
+
+    while len(queries) < num_queries:
+        query = None
         table = random.choice(tables)
         columns, data_types = get_table_columns(conn, table)
         if not columns:
             continue
 
-        if query_type == "basic" or (query_type is None and random.random() < 0.2):
+        selected_query_type = random.choice(query_types)
+        
+        if selected_query_type == "basic":
             # Basic query
+            subset_size = random.randint(1, len(columns))
+            selected_cols = random.sample(columns, subset_size)
+            cols = ", ".join(selected_cols)
+            query = f"SELECT {cols} FROM {table} LIMIT 5;"
+            
+        elif selected_query_type == "distinct":
+            # Distinct query
             col = random.choice(columns)
-            query = f"SELECT {col} FROM {table} LIMIT 5;"
-
-        elif query_type == "where" or (query_type is None and random.random() < 0.3):
+            query = f"SELECT DISTINCT {col} FROM {table} LIMIT 5;"
+        
+        elif selected_query_type == "where":
             # Query with WHERE clause
             col = random.choice(columns)
 
             sample_rows, column_names = get_sample_rows(conn, table, limit=5)
             if sample_rows:
                 random_row = random.choice(sample_rows)
-                
                 condition_value = random_row[column_names.index(col)] if col in column_names else None
                 if not is_numeric_column(col,data_types):
                     condition_value = f"'{condition_value}'"
@@ -396,8 +467,8 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
                     query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 5;"
             else:
                 query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 5;"
-
-        elif query_type == "aggregation" or (query_type is None and random.random() < 0.2):
+        
+        elif selected_query_type == "aggregation":
             # Aggregation query
             # except count, all others should be numerical
             random_index = random.randint(0, len(columns) - 1)
@@ -407,7 +478,7 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
                 agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
             query = f"SELECT {agg_func}({col}) FROM {table};"
 
-        elif query_type == "group by" or (query_type is None and random.random() < 0.2):
+        elif selected_query_type == "group by":
             # Group by query
             # check the type of col2, if numerical we can choose sum, avg, max, min
             if len(columns) > 1:
@@ -419,32 +490,62 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
             else:
                 query = f"SELECT * FROM {table} LIMIT 5;"
 
-        elif query_type == "order by" or (query_type is None and random.random() < 0.1):
+        elif selected_query_type == "order by":
             # Order by query
             col = random.choice(columns)
             order = random.choice(["ASC", "DESC"])
             query = f"SELECT * FROM {table} ORDER BY {col} {order} LIMIT 5;"
 
-        elif query_type == "join" or (query_type is None and random.random() < 0.1):
+        elif selected_query_type == "join":
             # Join query (requires at least 2 tables)
-            if len(tables) > 1:
-                #table2 = random.choice([t for t in tables])
-                table2 = random.choice([t for t in tables if t != table])
-                columns2, types = get_table_columns(conn, table2)
-                if columns2:
-                    col1 = random.choice(columns)
-                    col2 = random.choice(columns2)
-                    query = f"SELECT t1.{col1}, t2.{col2} FROM {table} t1 JOIN {table2} t2 ON t1.{col1} = t2.{col2} LIMIT 10;"
-                else:
-                    query = f"SELECT * FROM {table} LIMIT 10;"
-            else:
-                query = f"SELECT * FROM {table} LIMIT 10;"
+            # if len(tables) > 1:
+            #     #table2 = random.choice([t for t in tables])
+            #     table2 = random.choice([t for t in tables if t != table])
+            #     columns2, types = get_table_columns(conn, table2)
+            #     if columns2:
+            #         col1 = random.choice(columns)
+            #         col2 = random.choice(columns2)
+            #         query = f"SELECT t1.{col1}, t2.{col2} FROM {table} t1 JOIN {table2} t2 ON t1.{col1} = t2.{col2} LIMIT 10;"
+            #     else:
+            #         query = f"SELECT * FROM {table} LIMIT 10;"
+            # else:
+            #     query = f"SELECT * FROM {table} LIMIT 10;"
+            # Directly select two tables with meaningful relationships
+            joinable_tables = []
+            for table1, relationships in JOIN_RELATIONSHIPS.items():
+                if table1 in tables:
+                    for col1, related in relationships.items():
+                        for table2, col2 in related:
+                            if table2 in tables:
+                                joinable_tables.append((table1, col1, table2, col2))
+            
+            if not joinable_tables:
+                # If no meaningful join relationships, skip this iteration
+                continue
 
-        else:
-            continue
+            # Choose a meaningful join pair
+            table1, col1, table2, col2 = random.choice(joinable_tables)
+            columns1, _ = get_table_columns(conn, table1)
+            columns2, _ = get_table_columns(conn, table2)
 
-        # Add the generated query to the list
-        queries.append(query)
+            # Randomly select additional columns for the query
+            additional_cols1 = random.sample(columns1, random.randint(1, min(2, len(columns1))))
+            additional_cols2 = random.sample(columns2, random.randint(1, min(2, len(columns2))))
+            selected_cols1 = ", ".join([f"t1.{col}" for col in additional_cols1])
+            selected_cols2 = ", ".join([f"t2.{col}" for col in additional_cols2])
+
+            # Generate the join query
+            query = (
+                f"SELECT {selected_cols1}, {selected_cols2} "
+                f"FROM {table1} t1 "
+                f"JOIN {table2} t2 "
+                f"ON t1.{col1} = t2.{col2} "
+                f"LIMIT 10;"
+            )
+
+        if query is not None:
+            queries.append(query)
+
     return queries
 
 # Process queries based on type
@@ -523,15 +624,18 @@ def process_query(query_type, user_input, table_name):
     elif query_type == "order_by":
         match = re.search(query_templates["order_by"], user_input, re.IGNORECASE)
         column, order_column, order = match.group(2), match.group(3), match.group(4) or "ASC"
+        if order == "ascending":
+            order = "ASC"
+        elif order == "descending":
+            order = "DESC"
         sql = f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
     else:
         sql = None
-
     if query_type == "join":
         return sql, t1_cols1, t2_cols2
     elif query_type == "aggregation":
         return sql, agg_name
-    elif query_type in ["aggregation", "group_by_aggregation", "group_by_having"]:
+    elif query_type in ["group_by_aggregation", "group_by_having_1", "group_by_having_2", "group_by_having_3"]:
         return sql, group_by_column, agg_name
     else:
         return sql, column
@@ -551,7 +655,7 @@ def execute_query(conn, query):
 # Main chatbot loop
 def chatbot():
     global current_database
-    print("Hello! I'm your database assistant. You can upload CSV files, ask for sample queries, or ask natural language questions about your data.")
+    print("Hello! I'm your database assistant. You can upload CSV/JSON files, ask for sample queries, or ask natural language questions about your data.")
     print("By default, you are asking questions about mysql. You can enter 'mongodb' to switch to mongodb and 'mysql' to switch back")
     conn = connect_to_mysql()
     client = connect_to_mongodb()
@@ -563,13 +667,14 @@ def chatbot():
     
     while True:
         user_input = input("\nYou: ")
-        action, data = parse_input(user_input,conn)
+        action, data = parse_input(user_input, conn)
         if user_input.lower() == "exit":
             print("Goodbye!")
             break
+        elif user_input.lower() == "help":
+            helper(current_database == "mysql")
         elif (action == "mysql"):
             print("You are now asking questions about mysql")
-            
         elif (action == "mongodb"):
             print("You are now asking questions about mongodb")
         elif action == "upload":
@@ -583,7 +688,8 @@ def chatbot():
                 upload_data_mongodb(client=client,database_name="sample_analytics",file_path=data)
         elif action == "list_tables":
             print("Available Tables:")
-            print("\n".join(data))
+            print(data)
+            # print("\n".join(data))
         elif action == "introduce":
             print(data)
         elif action == "error":
@@ -592,9 +698,12 @@ def chatbot():
             if current_database == "mysql":
                 # pdb.set_trace()
                 sample_queires = generate_sample_queries(conn, query_type=data)
-                print(f"Here are {len(sample_queires)} sample queries:\n")
+                if len(sample_queires) == 0:
+                    print("No sample queries generated from your instruction, please try again or use the help command to see instructions")
+                    continue
+                print(f"Here are {len(sample_queires)} sample queries:")
                 print("\n".join(sample_queires))
-                execute_sample = input(f"Do you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
+                execute_sample = input(f"\nDo you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
 
                 while execute_sample in [str(x) for x in range(1, len(sample_queires) + 1)]:
                     execute_sample = int(execute_sample)
@@ -640,7 +749,7 @@ def chatbot():
                             print("No results found or an error occurred.")
                     else:
                         print("Could not generate a valid SQL query. Please try again.")
-                elif action in ["group_by_aggregation", "group_by_having"]:
+                elif action in ["group_by_aggregation", "group_by_having_1", "group_by_having_2", "group_by_having_3"]:
                     table_name = input(f"Please specify the table name you would like to query on among {tables}: " )
                     sql_query, group_by_column, agg_name = process_query(action, data, table_name)
                     if sql_query:
