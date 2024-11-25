@@ -87,7 +87,6 @@ def generate_sample_queries_for_mongodb(client, database_name, query_type=None,n
     queries = []
     for _ in range(num_queries):
         if query_type == "basic":
-            # 随机选择一个集合
             collection_name = random.choice(collections)
             collection = db[collection_name]
             sample_doc = collection.find_one()
@@ -96,7 +95,6 @@ def generate_sample_queries_for_mongodb(client, database_name, query_type=None,n
                 queries.append({"find": collection_name, "projection": {random_field: 1}})
 
         elif query_type == "where":
-            # 随机选择一个集合并生成 WHERE 查询
             collection_name = random.choice(collections)
             collection = db[collection_name]
             sample_doc = collection.find_one()
@@ -106,7 +104,6 @@ def generate_sample_queries_for_mongodb(client, database_name, query_type=None,n
                 queries.append({"find": collection_name, "filter": {random_field: random_value}})
 
         elif query_type == "aggregation":
-            # 随机选择一个集合并生成聚合查询
             collection_name = random.choice(collections)
             collection = db[collection_name]
             sample_doc = collection.find_one()
@@ -182,7 +179,24 @@ def get_all_tables(conn):
     except Exception as e:
         print(f"Error retrieving tables: {e}")
         return []
-    
+# Get schema of the table
+def get_table_schema(cursor, table_name):
+    cursor.execute(f"DESCRIBE {table_name}")
+    schema = cursor.fetchall()
+    column_info = {}
+    for col in schema:
+        column_name = col[0]
+        column_type = col[1].lower()
+        if "int" in column_type or "float" in column_type or "double" in column_type or "decimal" in column_type:
+            column_info[column_name] = "numeric"
+        elif "char" in column_type or "text" in column_type:
+            column_info[column_name] = "text"
+        elif "date" in column_type or "time" in column_type:
+            column_info[column_name] = "date"
+        else:
+            column_info[column_name] = "other"
+    return column_info
+   
 def get_table_metadata(conn, table_name):
     cursor = conn.cursor()
     try:
@@ -192,6 +206,19 @@ def get_table_metadata(conn, table_name):
     except mysql.connector.Error as e:
         print(f"Error describing table {table_name}: {e}")
         return None
+    
+def infer_sql_type(data):
+    if pd.api.types.is_integer_dtype(data):
+        return "INT"
+    elif pd.api.types.is_float_dtype(data):
+        return "FLOAT"
+    elif pd.api.types.is_bool_dtype(data):
+        return "BOOLEAN"
+    elif pd.api.types.is_datetime64_any_dtype(data):
+        return "DATETIME"
+    else:
+        return f"VARCHAR({255})"
+    
 # Upload CSV to MySQL and create a table
 def upload_csv_to_mysql(file_path):
     conn = connect_to_mysql()
@@ -202,13 +229,18 @@ def upload_csv_to_mysql(file_path):
     df = pd.read_csv(file_path)
 
     cursor = conn.cursor()
-
+    columns = []
     # Create table query
-    create_table_query = f"CREATE TABLE IF NOT EXISTS {table_name} ("
     for col in df.columns:
-        create_table_query += f"{col} VARCHAR(255), "
-    create_table_query = create_table_query.rstrip(", ") + ");"
+        sql_type = infer_sql_type(df[col])
+        columns.append(f"`{col}` {sql_type}")
+    create_table_query = f"""
+    CREATE TABLE `{table_name}` (
+        {', '.join(columns)}
+    );
+    """
 
+    print(create_table_query)
     try:
         cursor.execute(create_table_query)
         conn.commit()
@@ -464,7 +496,7 @@ def chatbot():
         print("Failed to connect to the database.")
         return
     
-    # tables = get_all_tables(conn)  # Get all existing tables in the database
+    tables = get_all_tables(conn)  # Get all existing tables in the database
     
     while True:
         user_input = input("\nYou: ")
