@@ -388,7 +388,7 @@ def get_table_columns(conn, table_name):
     columns = cursor.fetchall()
     column_types = {column[0]: column[1].lower() for column in columns}
     return [column[0] for column in columns], column_types
-def get_sample_rows(conn, table_name, limit=5):
+def get_sample_rows(conn, table_name, limit=10):
     cursor = conn.cursor()
     cursor.execute(f"SELECT * FROM {table_name} LIMIT {limit};")
     return cursor.fetchall(), [desc[0] for desc in cursor.description]
@@ -443,18 +443,18 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
             subset_size = random.randint(1, len(columns))
             selected_cols = random.sample(columns, subset_size)
             cols = ", ".join(selected_cols)
-            query = f"SELECT {cols} FROM {table} LIMIT 5;"
+            query = f"SELECT {cols} FROM {table} LIMIT 10;"
             
         elif selected_query_type == "distinct":
             # Distinct query
             col = random.choice(columns)
-            query = f"SELECT DISTINCT {col} FROM {table} LIMIT 5;"
+            query = f"SELECT DISTINCT {col} FROM {table} LIMIT 10;"
         
         elif selected_query_type == "where":
             # Query with WHERE clause
             col = random.choice(columns)
 
-            sample_rows, column_names = get_sample_rows(conn, table, limit=5)
+            sample_rows, column_names = get_sample_rows(conn, table, limit=10)
             if sample_rows:
                 random_row = random.choice(sample_rows)
                 condition_value = random_row[column_names.index(col)] if col in column_names else None
@@ -462,11 +462,11 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
                     condition_value = f"'{condition_value}'"
                 # check condition_value type and modify the query
                 if condition_value is not None:
-                    query = f"SELECT * FROM {table} WHERE {col} = {condition_value} LIMIT 5;"
+                    query = f"SELECT * FROM {table} WHERE {col} = {condition_value} LIMIT 10;"
                 else:
-                    query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 5;"
+                    query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 10;"
             else:
-                query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 5;"
+                query = f"SELECT * FROM {table} WHERE {col} IS NOT NULL LIMIT 10;"
         
         elif selected_query_type == "aggregation":
             # Aggregation query
@@ -486,15 +486,15 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
                 agg_func = "COUNT"
                 if is_numeric_column(col2,data_types):
                     agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
-                query = f"SELECT {col1}, {agg_func}({col2}) FROM {table} GROUP BY {col1} LIMIT 5;"
+                query = f"SELECT {col1}, {agg_func}({col2}) FROM {table} GROUP BY {col1} LIMIT 10;"
             else:
-                query = f"SELECT * FROM {table} LIMIT 5;"
+                query = f"SELECT * FROM {table} LIMIT 10;"
 
         elif selected_query_type == "order by":
             # Order by query
             col = random.choice(columns)
             order = random.choice(["ASC", "DESC"])
-            query = f"SELECT * FROM {table} ORDER BY {col} {order} LIMIT 5;"
+            query = f"SELECT * FROM {table} ORDER BY {col} {order} LIMIT 10;"
 
         elif selected_query_type == "join":
             # Join query (requires at least 2 tables)
@@ -575,7 +575,7 @@ def process_query(query_type, user_input, table_name):
         elif func == "maximum":
             func = "max"
         agg_name = f"{func}_{column}"
-        sql = f"SELECT {func.upper()}({column}) as {agg_name} FROM {table_name};"
+        sql = f"SELECT {func.upper()}({column}) AS {agg_name} FROM {table_name};"
     elif query_type == "group_by_aggregation":
         match = re.search(query_templates["group_by_aggregation"], user_input, re.IGNORECASE)
         func, column, group_by_column = match.group(1), match.group(2), match.group(3)
@@ -586,7 +586,7 @@ def process_query(query_type, user_input, table_name):
         elif func == "maximum":
             func = "max"
         agg_name = f"{func}_{column}"
-        sql = f"SELECT {group_by_column}, {func.upper()}({column}) as {agg_name} FROM {table_name} GROUP BY {group_by_column};"
+        sql = f"SELECT {group_by_column}, {func.upper()}({column}) AS {agg_name} FROM {table_name} GROUP BY {group_by_column};"
     elif "group_by_having" in query_type:
         match = re.search(query_templates[query_type], user_input, re.IGNORECASE)
         group_by_column, func, column, value = match.group(2), match.group(3), match.group(4), match.group(5)
@@ -631,14 +631,16 @@ def process_query(query_type, user_input, table_name):
         sql = f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
     else:
         sql = None
-    if query_type == "join":
-        return sql, t1_cols1, t2_cols2
-    elif query_type == "aggregation":
-        return sql, agg_name
-    elif query_type in ["group_by_aggregation", "group_by_having_1", "group_by_having_2", "group_by_having_3"]:
-        return sql, group_by_column, agg_name
-    else:
-        return sql, column
+
+    # if query_type == "join":
+    #     return sql, t1_cols1, t2_cols2
+    # elif query_type == "aggregation":
+    #     return sql, agg_name
+    # elif query_type in ["group_by_aggregation", "group_by_having_1", "group_by_having_2", "group_by_having_3"]:
+    #     return sql, group_by_column, agg_name
+    # else:
+    #     return sql, column
+    return sql
         
 
 # Execute an SQL query and fetch results
@@ -709,18 +711,21 @@ def chatbot():
                     execute_sample = int(execute_sample)
                     sql = sample_queires[execute_sample-1]
                     results=execute_query(conn, sql)
-                    print("Selected Query:")
+                    print("\nSelected Query:")
                     print(sql)
                     columns = sql.split("SELECT ")[1].split(" FROM")[0]
                     if columns == "*":
                         table_name = sql.split("FROM ")[1].split(" ")[0]
                         meta_data = get_table_metadata(conn, table_name)
-                        columns = ', '.join(col[0] for col in meta_data)
+                        columns = [col[0] for col in meta_data]
+                    else:
+                        columns = columns.split(", ")
+                    columns = [x.strip() for x in columns]
+                    table = PrettyTable(columns)
+                    table.add_rows(results)
                     print("\nQuery Results:")
-                    print(f"\t{columns}")
-                    for row in results:
-                        print(f"\t{', '.join(map(str, row))}")
-                    execute_sample = input(f"Do you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
+                    print(table)
+                    execute_sample = input(f"\nDo you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
                     
             else:
                 sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="sample_analytics"))
@@ -736,45 +741,33 @@ def chatbot():
             if tables:
                 if action == "join":
                     table_name = tables[0]  # the tables of join is specified in the input itself, so we don't need to do anything
-                    sql_query, column1, column2 = process_query(action, data, table_name)
+                    sql_query = process_query(action, data, table_name)
                     if sql_query:
-                        print(f"Generated Query:\n\t{sql_query}")
+                        print(f"\nGenerated Query:\n\t{sql_query}")
                         results = execute_query(conn, sql_query)
-                        if results:
-                            print("\nQuery Results:")
-                            print(f"\t{column1}, {column2}")
-                            for row in results:
-                                print(f"\t{', '.join(map(str, row))}")
-                        else:
-                            print("No results found or an error occurred.")
-                    else:
-                        print("Could not generate a valid SQL query. Please try again.")
-                elif action in ["group_by_aggregation", "group_by_having_1", "group_by_having_2", "group_by_having_3"]:
-                    table_name = input(f"Please specify the table name you would like to query on among {tables}: " )
-                    sql_query, group_by_column, agg_name = process_query(action, data, table_name)
-                    if sql_query:
-                        print(f"Generated Query:\n\t{sql_query}")
-                        results = execute_query(conn, sql_query)
-                        if results:
-                            print("\nQuery Results:")
-                            print(f"\t{group_by_column}, {agg_name}")
-                            for row in results:
-                                print(f"\t{', '.join(map(str, row))}")
-                        else:
-                            print("No results found or an error occurred.")
+                        columns = sql_query.split("SELECT ")[1].split(" FROM")[0].split(", ")
+                        pdb.set_trace()
+                        columns = [x.strip() for x in columns]
+                        table = PrettyTable(columns)
+                        table.add_rows(results)
+                        print("\nQuery Results:")
+                        print(table)
                     else:
                         print("Could not generate a valid SQL query. Please try again.")
                 else:
                     table_name = input(f"Please specify the table name you would like to query on among {tables}: " )
-                    sql_query, column = process_query(action, data, table_name)
+                    sql_query = process_query(action, data, table_name)
                     if sql_query:
                         print(f"Generated Query:\n\t{sql_query}")
                         results = execute_query(conn, sql_query)
                         if results:
+                            columns = sql_query.split("SELECT ")[1].split(" FROM")[0].split(", ")
+                            columns = [x if ") AS" not in x else x.split("AS ")[1] for x in columns]
+                            columns = [x.strip() for x in columns]
+                            table = PrettyTable(columns)
+                            table.add_rows(results)
                             print("\nQuery Results:")
-                            print(f"\t{column}")
-                            for row in results:
-                                print(f"\t{', '.join(map(str, row))}")
+                            print(table)
                         else:
                             print("No results found or an error occurred.")
                     else:
