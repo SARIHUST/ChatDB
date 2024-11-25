@@ -25,6 +25,7 @@ create table enrollment(
     courseId int, 
     semester text, 
     grade text,
+    score int,
     foreign key (studentId) references students(studentId),
     foreign key (courseId) references courses(courseId)
 );

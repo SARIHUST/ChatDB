@@ -22,15 +22,15 @@ values
     (104, "Linear Algebra", 3),
     (105, "Introduction to Business", 3);
 
-insert into enrollment (enrollmentId, studentId, courseId, semester, grade)
+insert into enrollment (enrollmentId, studentId, courseId, semester, grade, score)
 values
-    (1, 1, 101, "Fall 2023", "A"),
-    (2, 2, 102, "Fall 2023", "B"),
-    (3, 1, 103, "Fall 2023", "A"),
-    (4, 3, 101, "Fall 2023", "A"),
-    (5, 4, 104, "Fall 2023", "C"),
-    (6, 5, 101, "Fall 2023", "A"),
-    (7, 6, 102, "Fall 2023", "B");
+    (1, 1, 101, "Fall 2023", "A", 90),
+    (2, 2, 102, "Fall 2023", "B", 82),
+    (3, 1, 103, "Fall 2023", "A", 98),
+    (4, 3, 101, "Fall 2023", "A", 91),
+    (5, 4, 104, "Fall 2023", "C", 73),
+    (6, 5, 101, "Fall 2023", "A", 93),
+    (7, 6, 102, "Fall 2023", "B", 80);
 
 insert into instruct (courseId, instructorId)
 values

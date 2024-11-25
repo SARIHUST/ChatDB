@@ -262,16 +262,16 @@ def upload_csv_to_mysql(file_path):
 # Query templates
 # TODO: modify and -> ,
 query_templates = {
-    "basic": r"(list|show) all ((?:\w+\s*,?\s*)+)",
-    "where": r"(find|get|show)\s+((?:\w+\s+,\s+)*\w+)\s+where\s+(\w+)\s+(is|=|contains|>|<)\s+(.+)",
-    "aggregation": r"(count|sum|average|avg|min|max) of ((?:\w+\s+and\s+)*\w+)",
-    "group_by_aggregation": r"(sum|average|count|avg|min|max) ((?:\w+\s+and\s+)*\w+) by (\w+)",
-    "group_by_having": r"(find|get|show) ((?:\w+\s+and\s+)*\w+) with (sum|average|count|min|max) (\w+) greater than (\d+)", # TODO: modify
-    "join": r"(find|get|show) ((?:\w+\.\w+\s+and\s+)*\w+\.\w+) and ((?:\w+\.\w+\s+and\s+)*\w+\.\w+) where (\w+\.\w+) = (\w+\.\w+)",
-    "order_by": r"(list|show) ((?:\w+\s+and\s+)*\w+) ordered by (\w+) (asc|desc)?"
+    "basic": r"(list|show|display)\s+all\s+((?:\w+\s*,?\s*)+)",
+    "where": r"(find|get|show)\s+((?:\w+\s*,?\s*)+)\s+where\s+(\w+)\s*(is|=|>|<)\s*(.+)",
+    "aggregation": r"(count|sum|average|avg|minimum|min|maximum|max)\s+of\s+(\w+)",
+    "group_by_aggregation": r"(sum|count|average|avg|minimum|min|maximum|max)\s+(\w+)\s+by\s+(\w+)",
+    "group_by_having_1": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+(?:greater|larger|bigger)\s+than\s+(\d+)",
+    "group_by_having_2": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+(?:less|smaller)\s+than\s+(\d+)",
+    "group_by_having_3": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+equal\s+to\s+(\d+)",
+    "join": r"(find)\s+(\w+:\s+(?:\w+\s*(?:,\s*\w+\s*)*?))\s+and\s+(\w+:\s+(?:\w+\s*(?:,\s*\w+\s*)*?))\s+where\s+(\w+\.\w+)\s*=\s*(\w+\.\w+)",
+    "order_by": r"(list|show)\s+((?:\w+\s*,?\s*)+)\s+ordered\s+by\s+(\w+)\s+(asc|desc)?"
 }
-
-
 
 # Parse user input
 def parse_input(user_input,conn):
@@ -292,24 +292,23 @@ def parse_input(user_input,conn):
             if match:
                 return "upload", match.group(1)
     elif "sample" in user_input.lower():
-            if "basic" in user_input.lower():
-                return "sample", "basic"
-            elif "where" in user_input.lower():
-                return "sample", "where"
-            elif "aggregation" in user_input.lower():
-                return "sample", "aggregation" 
-            elif "group by" in user_input.lower():
-                return "sample", "group by" 
-            elif "order by" in user_input.lower():
-                return "sample", "order by"
-            elif "join" in user_input.lower():
-                return "sample","join"
-            elif "filter" in user_input.lower():
-                return "sample","filter"     
-            elif "project" in user_input.lower() or "projection" in user_input.lower():
-                return "sample", "projection"      
-            return "sample", None
-
+        if "basic" in user_input.lower():
+            return "sample", "basic"
+        elif "where" in user_input.lower():
+            return "sample", "where"
+        elif "aggregation" in user_input.lower():
+            return "sample", "aggregation" 
+        elif "group by" in user_input.lower():
+            return "sample", "group by" 
+        elif "order by" in user_input.lower():
+            return "sample", "order by"
+        elif "join" in user_input.lower():
+            return "sample","join"
+        elif "filter" in user_input.lower():
+            return "sample","filter"     
+        elif "project" in user_input.lower() or "projection" in user_input.lower():
+            return "sample", "projection"      
+        return "sample", None
 
     elif user_input.lower() == "list tables":
         tables = list_tables(conn)
@@ -338,8 +337,9 @@ def parse_input(user_input,conn):
                 return "introduce", result
             return "error", f"Table '{table_name}' does not exist or cannot be described."
     else:   # NLP
-        
-        for query_type, pattern in query_templates.items(): 
+        for query_type, pattern in query_templates.items():
+            if query_type == "where" and "where" not in user_input:
+                continue
             if re.search(pattern, user_input, re.IGNORECASE):
                 return query_type, user_input
             
@@ -457,44 +457,85 @@ def process_query(query_type, user_input, table_name):
     elif query_type == "where":
         match = re.search(query_templates["where"], user_input, re.IGNORECASE)
         column, condition_column, operator, value = match.group(2), match.group(3), match.group(4), match.group(5)
-        operator = "=" if operator == "is" else operator  # Replace "is" with "="
-        sql = f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} '{value}';"
+        operator = "=" if operator == "is" else operator
+        if value.isdigit():
+            sql = f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} {int(value)};"
+        elif value.replace('.', '').isdigit():
+            sql = f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} {float(value)};"
+        else:
+            sql = f"SELECT {column} FROM {table_name} WHERE {condition_column} {operator} '{value}';"
     elif query_type == "aggregation":
         match = re.search(query_templates["aggregation"], user_input, re.IGNORECASE)
         func, column = match.group(1), match.group(2)
-        sql = f"SELECT {func.upper()}({column}) FROM {table_name};"
+        if func == "average":
+            func = "avg"
+        elif func == "minimum":
+            func = "min"
+        elif func == "maximum":
+            func = "max"
+        agg_name = f"{func}_{column}"
+        sql = f"SELECT {func.upper()}({column}) as {agg_name} FROM {table_name};"
     elif query_type == "group_by_aggregation":
         match = re.search(query_templates["group_by_aggregation"], user_input, re.IGNORECASE)
         func, column, group_by_column = match.group(1), match.group(2), match.group(3)
-        sql = f"SELECT {group_by_column}, {func.upper()}({column}) FROM {table_name} GROUP BY {group_by_column};"
-    elif query_type == "group_by_having":
-        match = re.search(query_templates["group_by_having"], user_input, re.IGNORECASE)
-        column, func, agg_column, value = match.group(2), match.group(3), match.group(4), match.group(5)
+        if func == "average":
+            func = "avg"
+        elif func == "minimum":
+            func = "min"
+        elif func == "maximum":
+            func = "max"
+        agg_name = f"{func}_{column}"
+        sql = f"SELECT {group_by_column}, {func.upper()}({column}) as {agg_name} FROM {table_name} GROUP BY {group_by_column};"
+    elif "group_by_having" in query_type:
+        match = re.search(query_templates[query_type], user_input, re.IGNORECASE)
+        group_by_column, func, column, value = match.group(2), match.group(3), match.group(4), match.group(5)
+        if func == "average":
+            func = "avg"
+        elif func == "minimum":
+            func = "min"
+        elif func == "maximum":
+            func = "max"
+        agg_name = f"{func}_{column}"
         sql = f"""
-            SELECT {column}, {func.upper()}({agg_column}) AS agg_value 
+            SELECT {group_by_column}, {func.upper()}({column}) AS {agg_name}
             FROM {table_name} 
-            GROUP BY {column} 
-            HAVING agg_value > {value};
+            GROUP BY {group_by_column} 
+            HAVING {agg_name} {'>' if '1' in query_type else ('<' if '2' in query_type else '=')} {value};
         """
     elif query_type == "join":
         match = re.search(query_templates["join"], user_input, re.IGNORECASE)
-        col1, col2, condition1, condition2 = match.group(2), match.group(3), match.group(4), match.group(5)
-        table1, column1 = col1.split(".")
-        table2, column2 = col2.split(".")
+        input1, input2, condition1, condition2 = match.group(2), match.group(3), match.group(4), match.group(5)
+        table1, columns1 = input1.split(":")
+        table2, columns2 = input2.split(":")
+        cols1 = columns1.strip().split(', ')
+        cols2 = columns2.strip().split(', ')
+        t1_cols1 = f"{table1}.{cols1[0]}"
+        for i in range(1, len(cols1)):
+            t1_cols1 += f", {table1}.{cols1[i]}"
+        t2_cols2 = f"{table2}.{cols2[0]}"
+        for i in range(1, len(cols2)):
+            t2_cols2 += f", {table2}.{cols2[i]}"
         sql = f"""
-            SELECT {col1}, {col2} 
-            FROM {table1} 
-            JOIN {table2} ON {condition1} = {condition2};
+            SELECT {t1_cols1}, {t2_cols2}
+            FROM {table1}
+            JOIN {table2} ON {condition1} = {condition2}
         """
     elif query_type == "order_by":
-        print(user_input)
         match = re.search(query_templates["order_by"], user_input, re.IGNORECASE)
         column, order_column, order = match.group(2), match.group(3), match.group(4) or "ASC"
         sql = f"SELECT {column} FROM {table_name} ORDER BY {order_column} {order.upper()};"
     else:
         sql = None
-    print(sql)
-    return sql
+
+    if query_type == "join":
+        return sql, t1_cols1, t2_cols2
+    elif query_type == "aggregation":
+        return sql, agg_name
+    elif query_type in ["aggregation", "group_by_aggregation", "group_by_having"]:
+        return sql, group_by_column, agg_name
+    else:
+        return sql, column
+        
 
 # Execute an SQL query and fetch results
 def execute_query(conn, query):
@@ -549,20 +590,28 @@ def chatbot():
             print(f"Error: {data}")
         elif action ==  "sample":
             if current_database == "mysql":
-                sample_queires = (generate_sample_queries(conn,query_type=data))
-                print("HERE ARE 5 SAMPLES:\n")
+                # pdb.set_trace()
+                sample_queires = generate_sample_queries(conn, query_type=data)
+                print(f"Here are {len(sample_queires)} sample queries:\n")
                 print("\n".join(sample_queires))
-                execute_sample = input("Do you want to execute these samples?\nPlease enter the index of the sample (1-5) to execute and see result.Enter anything else to ask other questions:")
+                execute_sample = input(f"Do you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
 
-                while execute_sample in ["1","2","3","4","5"]:
+                while execute_sample in [str(x) for x in range(1, len(sample_queires) + 1)]:
                     execute_sample = int(execute_sample)
-                   
-                    results=execute_query(conn,sample_queires[execute_sample-1])
-                    print("THIS IS THE QUERY:\n")
-                    print(sample_queires[execute_sample-1])
-                    print("\nTHIS IS THE RESULT:\n")
-                    print(results)
-                    execute_sample = input("\nDo you want to execute more samples?\nPlease enter the index of the sample (1-5) to execute and see result.Enter anything else to ask other questions:")
+                    sql = sample_queires[execute_sample-1]
+                    results=execute_query(conn, sql)
+                    print("Selected Query:")
+                    print(sql)
+                    columns = sql.split("SELECT ")[1].split(" FROM")[0]
+                    if columns == "*":
+                        table_name = sql.split("FROM ")[1].split(" ")[0]
+                        meta_data = get_table_metadata(conn, table_name)
+                        columns = ', '.join(col[0] for col in meta_data)
+                    print("\nQuery Results:")
+                    print(f"\t{columns}")
+                    for row in results:
+                        print(f"\t{', '.join(map(str, row))}")
+                    execute_sample = input(f"Do you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
                     
             else:
                 sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="sample_analytics"))
@@ -575,20 +624,53 @@ def chatbot():
             # THIS IS ACHIEVED IN THE MAIN LOOP
             
         elif action in query_templates.keys():
-            
             if tables:
-                table_name = tables[0]  # Default to the first table for simplicity
-                sql_query = process_query(action, data, table_name)
-                if sql_query:
-                    results = execute_query(conn, sql_query)
-                    if results:
-                        print("\nQuery Results:")
-                        for row in results:
-                            print(" , ".join(map(str, row)))
+                if action == "join":
+                    table_name = tables[0]  # the tables of join is specified in the input itself, so we don't need to do anything
+                    sql_query, column1, column2 = process_query(action, data, table_name)
+                    if sql_query:
+                        print(f"Generated Query:\n\t{sql_query}")
+                        results = execute_query(conn, sql_query)
+                        if results:
+                            print("\nQuery Results:")
+                            print(f"\t{column1}, {column2}")
+                            for row in results:
+                                print(f"\t{', '.join(map(str, row))}")
+                        else:
+                            print("No results found or an error occurred.")
                     else:
-                        print("No results found or an error occurred.")
+                        print("Could not generate a valid SQL query. Please try again.")
+                elif action in ["group_by_aggregation", "group_by_having"]:
+                    table_name = input(f"Please specify the table name you would like to query on among {tables}: " )
+                    sql_query, group_by_column, agg_name = process_query(action, data, table_name)
+                    if sql_query:
+                        print(f"Generated Query:\n\t{sql_query}")
+                        results = execute_query(conn, sql_query)
+                        if results:
+                            print("\nQuery Results:")
+                            print(f"\t{group_by_column}, {agg_name}")
+                            for row in results:
+                                print(f"\t{', '.join(map(str, row))}")
+                        else:
+                            print("No results found or an error occurred.")
+                    else:
+                        print("Could not generate a valid SQL query. Please try again.")
                 else:
-                    print("Could not generate a valid SQL query. Please try again.")
+                    table_name = input(f"Please specify the table name you would like to query on among {tables}: " )
+                    sql_query, column = process_query(action, data, table_name)
+                    if sql_query:
+                        print(f"Generated Query:\n\t{sql_query}")
+                        results = execute_query(conn, sql_query)
+                        if results:
+                            print("\nQuery Results:")
+                            print(f"\t{column}")
+                            for row in results:
+                                print(f"\t{', '.join(map(str, row))}")
+                        else:
+                            print("No results found or an error occurred.")
+                    else:
+                        print("Could not generate a valid SQL query. Please try again.")
+
             else:
                 print("No tables found. Please upload a CSV file or check your database.")
         else:
