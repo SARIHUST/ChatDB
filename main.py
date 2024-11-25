@@ -8,6 +8,7 @@ from prettytable import PrettyTable
 import json
 import warnings
 from cryptography.utils import CryptographyDeprecationWarning
+import pdb
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 # MySQL connection details
@@ -259,12 +260,13 @@ def upload_csv_to_mysql(file_path):
         return None, None
 
 # Query templates
+# TODO: modify and -> ,
 query_templates = {
     "basic": r"(list|show) all ((?:\w+\s*,?\s*)+)",
-    "where": r"(find|get|show)\s+((?:\w+\s+and\s+)*\w+)\s+where\s+(\w+)\s+(is|=|contains|>|<)\s+(.+)",
+    "where": r"(find|get|show)\s+((?:\w+\s+,\s+)*\w+)\s+where\s+(\w+)\s+(is|=|contains|>|<)\s+(.+)",
     "aggregation": r"(count|sum|average|avg|min|max) of ((?:\w+\s+and\s+)*\w+)",
     "group_by_aggregation": r"(sum|average|count|avg|min|max) ((?:\w+\s+and\s+)*\w+) by (\w+)",
-    "group_by_having": r"(find|get|show) ((?:\w+\s+and\s+)*\w+) with (sum|average|count|min|max) (\w+) greater than (\d+)",
+    "group_by_having": r"(find|get|show) ((?:\w+\s+and\s+)*\w+) with (sum|average|count|min|max) (\w+) greater than (\d+)", # TODO: modify
     "join": r"(find|get|show) ((?:\w+\.\w+\s+and\s+)*\w+\.\w+) and ((?:\w+\.\w+\s+and\s+)*\w+\.\w+) where (\w+\.\w+) = (\w+\.\w+)",
     "order_by": r"(list|show) ((?:\w+\s+and\s+)*\w+) ordered by (\w+) (asc|desc)?"
 }
@@ -335,7 +337,7 @@ def parse_input(user_input,conn):
                         result += "\t".join(map(str, row)) + "\n"
                 return "introduce", result
             return "error", f"Table '{table_name}' does not exist or cannot be described."
-    else:
+    else:   # NLP
         
         for query_type, pattern in query_templates.items(): 
             if re.search(pattern, user_input, re.IGNORECASE):
@@ -378,6 +380,7 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
             if sample_rows:
                 random_row = random.choice(sample_rows)
                 condition_value = random_row[column_names.index(col)] if col in column_names else None
+                # TODO: check condition_value type and modify the query
                 if condition_value is not None:
                     query = f"SELECT * FROM {table} WHERE {col} = '{condition_value}' LIMIT 10;"
                 else:
@@ -387,12 +390,14 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
 
         elif query_type == "aggregation" or (query_type is None and random.random() < 0.2):
             # Aggregation query
+            # TODO: except count, all others should be numerical
             col = random.choice(columns)
             agg_func = random.choice(["SUM", "COUNT", "AVG", "MAX", "MIN"])
             query = f"SELECT {agg_func}({col}) FROM {table};"
 
         elif query_type == "group by" or (query_type is None and random.random() < 0.2):
             # Group by query
+            # TODO: check the type of col2, if numerical we can choose sum, avg, max, min
             if len(columns) > 1:
                 col1, col2 = random.sample(columns, 2)
                 query = f"SELECT {col1}, COUNT({col2}) FROM {table} GROUP BY {col1} LIMIT 10;"
@@ -407,8 +412,10 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
 
         elif query_type == "join" or (query_type is None and random.random() < 0.1):
             # Join query (requires at least 2 tables)
-            if len(tables) > 1:
-                table2 = random.choice([t for t in tables if t != table])
+            # TODO: add 2 tables, change the query to rename the tables t1 and t2
+            if len(tables) > 1 or True:
+                table2 = random.choice([t for t in tables])
+                # table2 = random.choice([t for t in tables if t != table])
                 columns2 = get_table_columns(conn, table2)
                 if columns2:
                     col1 = random.choice(columns)
@@ -431,7 +438,7 @@ def process_query(query_type, user_input, table_name):
     match = None
     if query_type == "basic":
         match = re.search(query_templates["basic"], user_input, re.IGNORECASE)
-        column = match.group(1)
+        column = match.group(2)
         sql = f"SELECT {column} FROM {table_name};"
     elif query_type == "where":
         match = re.search(query_templates["where"], user_input, re.IGNORECASE)
@@ -536,6 +543,11 @@ def chatbot():
                 print(generate_sample_queries(conn,query_type=data))
             else:
                 print(generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="sample_analytics"))
+            # TODO: add input for execution
+            # user_sub_input = input()
+            # while user_sub_input in [1, 2, ...]:
+            #  xxx
+            
         elif action in query_templates.keys():
             
             if tables:
