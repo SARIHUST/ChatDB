@@ -175,7 +175,7 @@ def get_all_tables(conn):
         cursor = conn.cursor()
         cursor.execute("SHOW TABLES;")
         tables = [table[0] for table in cursor.fetchall()]
-        print("Available tables:", tables)
+        print("Available tables in the mysql database:", tables)
         return tables
     except Exception as e:
         print(f"Error retrieving tables: {e}")
@@ -511,6 +511,7 @@ def execute_query(conn, query):
 def chatbot():
     global current_database
     print("Hello! I'm your database assistant. You can upload CSV files, ask for sample queries, or ask natural language questions about your data.")
+    print("By default, you are asking questions about mysql. You can enter 'mongodb' to switch to mongodb and 'mysql' to switch back")
     conn = connect_to_mysql()
     client = connect_to_mongodb()
     if not conn:
@@ -539,12 +540,6 @@ def chatbot():
                     tables = get_all_tables(conn)  # Update table list
             else:
                 upload_data_mongodb(client=client,database_name="sample_analytics",file_path=data)
-
-        # elif action == "list_databases":
-        #     print("Available Databases:")
-        #     print("\n".join(data))
-        # elif action == "use_database":
-        #     print(data)
         elif action == "list_tables":
             print("Available Tables:")
             print("\n".join(data))
