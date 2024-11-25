@@ -9,6 +9,7 @@ from cryptography.utils import CryptographyDeprecationWarning
 import pdb
 
 ATLAS_URI = "mongodb+srv://xyxy:DSCI551@cluster48297.lfyhked.mongodb.net/?retryWrites=true&w=majority&appName=Cluster48297"
+DATABASE_NAME = "DSCI551"
 
 def connect_to_mongodb():
     try:
@@ -18,6 +19,7 @@ def connect_to_mongodb():
     except Exception as e:
         print(f"Error connecting to MongoDB: {e}")
         return None
+    
 def upload_data_mongodb(client, database_name, file_path):
     collection_name = os.path.splitext(os.path.basename(file_path))[0]
     db = client[database_name]
@@ -42,8 +44,9 @@ def get_collection_metadata(client, database_name, collection_name):
     db = client[database_name]
     collection = db[collection_name]
     sample_doc = collection.find_one()
+    sample_docs = collection.find().limit(3)
     if sample_doc:
-        return list(sample_doc.keys()), sample_doc
+        return list(sample_doc.keys()), sample_docs
     return [], None
 
 
@@ -90,7 +93,7 @@ def generate_sample_queries_for_mongodb(client, database_name, query_type=None,n
 
     return queries
 
-def parse_input_mongodb(user_input, conn):
+def parse_input_mongodb(user_input, client):
     if user_input.startswith("upload "):
         match = re.match(r"upload (.+\.json)", user_input)
         if match:
@@ -114,32 +117,19 @@ def parse_input_mongodb(user_input, conn):
             return "sample", None
         return None, None
 
-    elif user_input.lower() == "list tables":
-        tables = list_tables(conn)
-        if tables:
-            return "list_tables", tables
-        return "error", "No tables found in the current database."
+    elif user_input.lower() == "list collections":
+        collections = list_collections(client,DATABASE_NAME)
+        if collections:
+            return "list_collections", collections
+        return "error", "No collections found in the current database."
 
     elif user_input.lower().startswith("introduce "):
         match = re.match(r"introduce (\w+)", user_input, re.IGNORECASE)
         if match:
             table_name = match.group(1)
-            metadata = get_table_metadata(conn, table_name)
-            if metadata:
-                result = f"Table: {table_name}\nColumns:\n"
-                for column in metadata:
-                    col_name = column[0]
-                    col_type = column[1]
-                    result += f"  - {col_name} ({col_type})\n"
-                # Add sample data
-                column_names, rows = get_sample_data(conn, table_name)
-                if column_names and rows:
-                    result += "\nSample Data:\n"
-                    result += ", ".join(column_names) + "\n"
-                    for row in rows:
-                        result += ", ".join(map(str, row)) + "\n"
-                return "introduce", result
-            return "error", f"Table '{table_name}' does not exist or cannot be described."
+            metadata = get_collection_metadata(client, DATABASE_NAME,table_name)
+
+            return "introduce", metadata
     else:   # NLP
         for query_type, pattern in mysql_query_templates.items():
             # print(query_type)
@@ -150,14 +140,28 @@ def parse_input_mongodb(user_input, conn):
             
     return None, None
 
-
+def helper():
+    print("")
 
 def chat_mongodb(user_input, client):
-    pass
+    if user_input.lower() == "help":
+        helper()
+        return
+    collections = list_collections(client,DATABASE_NAME)
     action, data = parse_input_mongodb(user_input, client)
     if action == "upload":
-        upload_data_mongodb(client,"DSCI551",data)
-    if action ==  "sample":
-
-        sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="DSCI551"))
+        upload_data_mongodb(client,DATABASE_NAME,data)
+        print(list_collections(client,DATABASE_NAME))
+    elif action == "list_collections":
+        print("Available Collections:")
+        print(data)
+    elif action == "introduce":
+        print("Since MongoDB is a schema-less Nosql database, here's the field names of the first document:")
+        print(data[0])
+        print("Here are the first three documents in the collection:\n")
+        for doc in data[1]:
+            print(json.dumps(doc, indent=4, default=str))
+        
+    elif action ==  "sample":
+        sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name=DATABASE_NAME))
         print("\n".join(sample_queires))
