@@ -37,6 +37,7 @@ Projection:
 db.products.find({ category: "electronics" }, { name: 1, price: 1, _id: 0 })
 
 Aggregation (Grouping):
+
 db.sales.aggregate([
   { $group: { _id: "$store", totalSales: { $sum: "$amount" } } }
 ])
@@ -67,4 +68,6 @@ db.products.find().sort({ price: -1 })
 count:
 
 db.person.count({age: {$gt: 25}})
+
+
 ## [chatgpt hints](https://chatgpt.com/share/673adcca-8038-800a-97b3-bab2c15c48d1)

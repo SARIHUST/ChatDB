@@ -25,19 +25,11 @@ def upload_data_mongodb(client, database_name, file_path):
     try:
         if file_path.endswith(".json"):
             with open(file_path, "r") as file:
-                for line in file:
-                    line = line.strip()  
-                    if not line:  
-                        continue
-                    try:
-                        document = json.loads(line)  
-                        collection.insert_one(document)  
-                    except json.JSONDecodeError as e:
-                        print(f"Invalid JSON object in line: {line}")
-                        print(f"Error: {e}")
-        elif file_path.endswith(".csv"):
-            data = pd.read_csv(file_path)
-            collection.insert_many(data.to_dict("records"))
+                data = json.load(file) 
+                if isinstance(data, list):
+                    collection.insert_many(data) 
+                else:
+                    collection.insert_one(data)
         print(f"Data uploaded to {database_name}.{collection_name} successfully!")
     except Exception as e:
         print(f"Error uploading data: {e}")
@@ -98,9 +90,9 @@ def generate_sample_queries_for_mongodb(client, database_name, query_type=None,n
 
     return queries
 
-def parse_input_mysql(user_input, conn):
+def parse_input_mongodb(user_input, conn):
     if user_input.startswith("upload "):
-        match = re.match(r"upload (.+\.csv)", user_input)
+        match = re.match(r"upload (.+\.json)", user_input)
         if match:
             return "upload", match.group(1)
     elif "sample" in user_input.lower():
@@ -162,7 +154,9 @@ def parse_input_mysql(user_input, conn):
 
 def chat_mongodb(user_input, client):
     pass
-    action, data = parse_input_mysql(user_input, client)
+    action, data = parse_input_mongodb(user_input, client)
+    if action == "upload":
+        upload_data_mongodb(client,"DSCI551",data)
     if action ==  "sample":
 
         sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name="DSCI551"))
