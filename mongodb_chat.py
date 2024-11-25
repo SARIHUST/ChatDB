@@ -45,9 +45,10 @@ def get_collection_metadata(client, database_name, collection_name):
     collection = db[collection_name]
     sample_doc = collection.find_one()
     sample_docs = collection.find().limit(3)
+    count = collection.count_documents({})
     if sample_doc:
-        return list(sample_doc.keys()), sample_docs
-    return [], None
+        return list(sample_doc.keys()), sample_docs, count
+    return [], None, 0
 
 
 def generate_sample_queries_for_mongodb(client, database_name, query_type=None,num_queries = 5):
@@ -156,9 +157,10 @@ def chat_mongodb(user_input, client):
         print("Available Collections:")
         print(data)
     elif action == "introduce":
-        print("Since MongoDB is a schema-less Nosql database, here's the field names of the first document:")
+        print(f"This collection contains {data[2]} documents\n")
+        print("Since MongoDB is a schema-less Nosql database, here are the field names of the first document:\n")
         print(data[0])
-        print("Here are the first three documents in the collection:\n")
+        print("\nHere are the first three documents in the collection:\n")
         for doc in data[1]:
             print(json.dumps(doc, indent=4, default=str))
         
