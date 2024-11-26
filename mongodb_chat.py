@@ -273,7 +273,7 @@ mongodb_query_templates = {
     "grouping": r"(sum|average|avg|minimum|min|maximum|max)\s+(\w+)\s+by\s+(\w+)",
     "sort": r"sort\s+documents\s+by\s+(\w+)\s+in\s+(ascending|descending)\s+order",
     "count": r"count\s+documents\s+with\s+(\w+)\s*(is|=|>=|<=|>|<)\s*(.+)",
-    "lookup": r"(lookup|search|join)\s+(\w+)\s+from\s+(\w+)\s+on\s+(\w+)\s+=\s+(\w+)"
+    "lookup": r"use\s+(\w+)\s+to\s+(lookup|find|search)\s+(\w+)\s+(on|where|with)\s+(\w+)\s+(matches|aligns|equals|=)\s+(\w+)"
 }
 
 def process_query(query_type, user_input, collection):
@@ -375,7 +375,7 @@ def process_query(query_type, user_input, collection):
 
     elif query_type == "lookup":
         match = re.search(mongodb_query_templates["lookup"], user_input, re.IGNORECASE)
-        collection, from_collection, local_field, from_field = match.group(2), match.group(3), match.group(4), match.group(5)
+        collection, from_collection, local_field, from_field = match.group(1), match.group(3), match.group(5), match.group(7)
         query = (
             f"db.{collection}.aggregate(["
             f"{{'$lookup': {{'from': '{from_collection}', "
@@ -408,7 +408,7 @@ def helper():
         "ask questions utilizing grouping queries, e.g., sum stock by category",
         "ask questions utilizing sort queries, e.g., sort documents by price in descending order",
         "ask questions utilizing count queries, e.g., count documents with rating <= 3",
-        "ask questions utilizing lookup queries, e.g., search users from reviews on _id = userId",
+        "ask questions utilizing lookup queries, e.g., use users to search reviews on _id = userId",
     ]
 
     print("Here are the commands you can input:")

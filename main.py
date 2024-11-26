@@ -28,7 +28,7 @@ def chatbot():
             continue
         
         if current_database == "mysql":
-            chat_mysql(user_input, conn)
+            conn = chat_mysql(user_input, conn)
         else:
             chat_mongodb(user_input, client)
 

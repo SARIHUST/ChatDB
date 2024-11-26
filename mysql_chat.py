@@ -56,41 +56,12 @@ def helper():
         instruction = help_instructions[i]
         print(f"\t{i+1}. {instruction}")
 
-# Function to list all databases
-def list_databases(conn):
-    cursor = conn.cursor()
-    cursor.execute("SHOW DATABASES;")
-    databases = [db[0] for db in cursor.fetchall()]
-    return databases
-
-# Function to select a database
-def select_database(conn, database_name):
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"USE {database_name};")
-        # print(f"Switched to database: {database_name}")
-        return True
-    except Exception as e:
-        print(f"Error selecting database {database_name}: {e}")
-        return False
-
 # Function to list all tables in the current database
 def list_tables(conn):
     cursor = conn.cursor()
     cursor.execute("SHOW TABLES;")
     tables = [table[0] for table in cursor.fetchall()]
     return tables
-
-# Function to get metadata for a table
-def get_table_metadata(conn, table_name):
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"DESCRIBE {table_name};")
-        metadata = cursor.fetchall()
-        return metadata
-    except Exception as e:
-        print(f"Error describing table {table_name}: {e}")
-        return None
 
 # Function to get sample data from a table
 def get_sample_data(conn, table_name, limit=5):
@@ -116,24 +87,6 @@ def get_all_tables(conn):
         print(f"Error retrieving tables: {e}")
         return []
 
-# Get schema of the table
-def get_table_schema(cursor, table_name):
-    cursor.execute(f"DESCRIBE {table_name}")
-    schema = cursor.fetchall()
-    column_info = {}
-    for col in schema:
-        column_name = col[0]
-        column_type = col[1].lower()
-        if "int" in column_type or "float" in column_type or "double" in column_type or "decimal" in column_type:
-            column_info[column_name] = "numeric"
-        elif "char" in column_type or "text" in column_type:
-            column_info[column_name] = "text"
-        elif "date" in column_type or "time" in column_type:
-            column_info[column_name] = "date"
-        else:
-            column_info[column_name] = "other"
-    return column_info
-   
 def get_table_metadata(conn, table_name):
     cursor = conn.cursor()
     try:
@@ -622,3 +575,5 @@ def chat_mysql(user_input, conn):
             print("No tables found. Please upload a CSV file or check your database.")
     else:
         print("Invalid command.")
+
+    return conn
