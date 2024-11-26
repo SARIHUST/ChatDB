@@ -408,7 +408,7 @@ def helper():
         "ask questions utilizing grouping queries, e.g., sum stock by category",
         "ask questions utilizing sort queries, e.g., sort documents by price in descending order",
         "ask questions utilizing count queries, e.g., count documents with rating <= 3",
-        "ask questions utilizing lookup queries, e.g., lookup users from reviews on _id = userId",
+        "ask questions utilizing lookup queries, e.g., search users from reviews on _id = userId",
     ]
 
     print("Here are the commands you can input:")
