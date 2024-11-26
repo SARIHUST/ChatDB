@@ -257,18 +257,144 @@ def parse_input_mongodb(user_input, client):
             metadata = get_collection_metadata(client, DATABASE_NAME,table_name)
 
             return "introduce", metadata
-    # else:   # NLP
-    #     for query_type, pattern in mysql_query_templates.items():
-    #         # print(query_type)
-    #         if query_type == "where" and "where" not in user_input:
-    #             continue
-    #         if re.search(pattern, user_input, re.IGNORECASE):
-    #             return query_type, user_input
+    else:   # NLP
+        for query_type, pattern in mongodb_query_templates.items():
+            # print(query_type)
+            if query_type == "where" and "where" not in user_input:
+                continue
+            if re.search(pattern, user_input, re.IGNORECASE):
+                return query_type, user_input
             
     return None, None
 
+mongodb_query_templates = {
+    "find": r"(find|get|show)\s+all\s+documents\s+where\s+(\w+)\s*(is|=|>|<|>=|<=)\s*(.+)",
+    "project": r"(find|get|show)\s+([\w,\s]+)\s+fields",
+    "grouping": r"(sum|count|average|avg|minimum|min|maximum|max)\s+(\w+)\s+by\s+(\w+)",
+    "sort": r"sort\s+documents\s+by\s+(\w+)\s+in\s+(ascending|descending)\s+order",
+    "count": r"count\s+documents\s+with\s+(\w+)\s*(is|=|>|<|>=|<=)\s*(.+)"
+}
+
+def process_query(query_type, user_input, collection):
+    match = None
+    if query_type == "find":
+        match = re.search(mongodb_query_templates["find"], user_input, re.IGNORECASE)
+        field, operator, value = match.group(2), match.group(3), match.group(4)
+        if value.isdigit():
+            value = int(value)
+        elif value.replace(".", "").isdigit():
+            value = float(value)
+        if isinstance(value, (int, float)):
+            if operator == "=":
+                query = f"db.{collection}.find({{'{field}': {value}}})"
+            elif operator == "<":
+                query = f"db.{collection}.find({{'{field}': {{'$lt': {value}}}}})"
+            elif operator == ">":
+                query = f"db.{collection}.find({{'{field}': {{'$gt': {value}}}}})"
+            elif operator == "<=":
+                query = f"db.{collection}.find({{'{field}': {{'$lte': {value}}}}})"
+            elif operator == ">=":
+                query = f"db.{collection}.find({{'{field}': {{'$gte': {value}}}}})"
+        else:
+            if operator == "=":
+                query = f"db.{collection}.find({{'{field}': '{value}'}})"
+            elif operator == "<":
+                query = f"db.{collection}.find({{'{field}': {{'$lt': '{value}'}}}})"
+            elif operator == ">":
+                query = f"db.{collection}.find({{'{field}': {{'$gt': '{value}'}}}})"
+            elif operator == "<=":
+                query = f"db.{collection}.find({{'{field}': {{'$lte': '{value}'}}}})"
+            elif operator == ">=":
+                query = f"db.{collection}.find({{'{field}': {{'$gte': '{value}'}}}})"
+    
+    elif query_type == "project":
+        match = re.search(mongodb_query_templates["project"], user_input, re.IGNORECASE)
+        project_fields= match.group(2)
+        projection = ", ".join(f"{x!r}: 1" for x in project_fields.split(", "))
+        projection += ", '_id': 0"
+        query = f"db.{collection}.find({{}}, {{{projection}}})"
+
+    elif query_type == "grouping":
+        match = re.search(mongodb_query_templates["grouping"], user_input, re.IGNORECASE)
+        func, field, group_by_field = match.group(1), match.group(2), match.group(3)
+        if func == "average" or func == "avg":
+            func = "$avg"
+        elif func == "minimize" or func == "min":
+            func = "$min"
+        elif func == "maximize" or func == "max":
+            func = "$max"
+        agg_func = func.replace("$", "")
+        query = (
+            f"db.{collection}.aggregate(["
+            f"{{'$group': {{'_id': '${group_by_field}', "
+            f"'{field}_{agg_func}': {{'{func}': '${field}'}}}}}}"
+            f"])"
+        )
+
+    elif query_type == "sort":
+        match = re.search(mongodb_query_templates["sort"], user_input, re.IGNORECASE)
+        field, order = match.group(1), match.group(2)
+        if order == "ascending":
+            order = 1
+        else:
+            order = -1
+        query = f"db.{collection}.aggregate([{{'$sort': {{'{field}': {order}}}}}])"
+
+    elif query_type == "count":
+        match = re.search(mongodb_query_templates["count"], user_input, re.IGNORECASE)
+        field, operator, value = match.group(1), match.group(2), match.group(3)
+        if value.isdigit():
+            value = int(value)
+        elif value.replace(".", "").isdigit():
+            value = float(value)
+        if isinstance(value, (int, float)):
+            if operator == "=":
+                query = f"db.{collection}.count_documents({{'{field}': {value}}})"
+            elif operator == "<":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$lt': {value}}}}})"
+            elif operator == ">":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$gt': {value}}}}})"
+            elif operator == "<=":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$lte': {value}}}}})"
+            elif operator == ">=":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$gte': {value}}}}})"
+        else:
+            if operator == "=":
+                query = f"db.{collection}.count_documents({{'{field}': '{value}'}})"
+            elif operator == "<":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$lt': '{value}'}}}})"
+            elif operator == ">":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$gt': '{value}'}}}})"
+            elif operator == "<=":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$lte': '{value}'}}}})"
+            elif operator == ">=":
+                query = f"db.{collection}.count_documents({{'{field}': {{'$gte': '{value}'}}}})"
+
+    elif query_type == "lookup":
+        pass
+
+    else:
+        query = None
+
+    return query
+
 def helper():
     print("")
+
+def process_data(data):
+    from bson import ObjectId
+    from datetime import datetime
+    """Convert a dictionary with non-serializable types into a JSON-serializable format."""
+    if isinstance(data, dict):
+        return {key: process_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [process_data(item) for item in data]
+    elif isinstance(data, ObjectId):
+        return str(data)  # Convert ObjectId to string
+    elif isinstance(data, datetime):
+        return data.isoformat()  # Convert datetime to ISO 8601 string
+    else:
+        return data
 
 def chat_mongodb(user_input, client):
     db = client[DATABASE_NAME]
@@ -306,11 +432,29 @@ def chat_mongodb(user_input, client):
                 results = eval(query)
                 if not isinstance(results, int):
                     results = list(results)
-                else:
-                    results = [results]
+                results = process_data(results)
                 print("\nSelected Query:")
                 print(query)
                 print("\nQuery Results:")
-                for result in results:
-                    print(result)
+                print(json.dumps(results, indent=4))
                 execute_sample = input(f"\nDo you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
+
+    elif action in mongodb_query_templates.keys():
+        if collections:
+            collection_name = input(f"Please specify the table name you would like to query on among {collections}: " )
+            mongodb_query = process_query(action, data, collection_name)
+            if mongodb_query:
+                print(f"\nGenerated Query:\n\t{mongodb_query}")
+                results = eval(mongodb_query)
+                if not isinstance(results, int):
+                    results = list(results)
+                results = process_data(results)
+                print("\nQuery Results:")
+                print(json.dumps(results, indent=4))
+            else:
+                print("Could not generate a valid MongoDB query. Please try again.")
+        else:
+            print("No collections found. Please upload a JSON file or check your database.")
+    
+    else:
+        print("Invalid command.")
