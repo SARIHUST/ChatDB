@@ -152,12 +152,12 @@ def upload_csv_to_mysql(file_path):
 # TODO: modify and -> ,
 mysql_query_templates = {
     "basic": r"(list|show|display)\s+all\s+((?:\w+\s*,?\s*)+)",
-    "where": r"(find|get|show)\s+((?:\w+\s*,?\s*)+)\s+where\s+(\w+)\s*(is|=|>|<)\s*(.+)",
+    "where": r"(find|get|show)\s+((?:\w+\s*,?\s*)+)\s+where\s+(\w+)\s*(is|=|>=|<=|>|<)\s*(.+)",
     "aggregation": r"(count|sum|average|avg|minimum|min|maximum|max)\s+of\s+(\w+)",
     "group_by_aggregation": r"(sum|count|average|avg|minimum|min|maximum|max)\s+(\w+)\s+by\s+(\w+)",
-    "group_by_having_1": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+(?:greater|larger|bigger)\s+than\s+(\d+)",
-    "group_by_having_2": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+(?:less|smaller)\s+than\s+(\d+)",
-    "group_by_having_3": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|min|max)\s+(\w+)\s+equal\s+to\s+(\d+)",
+    "group_by_having_1": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|minimum|min|maximum|max)\s+(\w+)\s+(?:greater|larger|bigger)\s+than\s+(\d+)",
+    "group_by_having_2": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|minimum|min|maximum|max)\s+(\w+)\s+(?:less|smaller)\s+than\s+(\d+)",
+    "group_by_having_3": r"(find|get|show)\s+(\w+)\s+with\s+(sum|average|count|minimum|min|maximum|max)\s+(\w+)\s+equal\s+to\s+(\d+)",
     "join": r"(find)\s+(\w+:\s+(?:\w+\s*(?:,\s*\w+\s*)*?))\s+and\s+(\w+:\s+(?:\w+\s*(?:,\s*\w+\s*)*?))\s+where\s+(\w+\.\w+)\s*=\s*(\w+\.\w+)",
     "order_by": r"(list|show)\s+((?:\w+\s*,\s*)*\w+)\s+ordered\s+by\s+(\w+)\s+in\s+(ascending|descending)\s+order"
 }
@@ -383,7 +383,7 @@ def generate_sample_queries(conn, query_type=None, num_queries=5):
                 f"LIMIT 10;"
             )
 
-        if query is not None:
+        if query is not None and query not in queries:
             queries.append(query)
 
     return queries
@@ -489,7 +489,7 @@ def execute_query(conn, query):
 def chat_mysql(user_input, conn):
     if user_input.lower() == "help":
         helper()
-        return
+        return conn
     tables = get_all_tables(conn)
     action, data = parse_input_mysql(user_input, conn)
     if action == "upload":

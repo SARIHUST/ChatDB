@@ -286,7 +286,7 @@ def process_query(query_type, user_input, collection):
         elif value.replace(".", "").isdigit():
             value = float(value)
         if isinstance(value, (int, float)):
-            if operator == "=":
+            if operator == "=" or operator == "is":
                 query = f"db.{collection}.find({{'{field}': {value}}})"
             elif operator == "<":
                 query = f"db.{collection}.find({{'{field}': {{'$lt': {value}}}}})"
@@ -297,7 +297,7 @@ def process_query(query_type, user_input, collection):
             elif operator == ">=":
                 query = f"db.{collection}.find({{'{field}': {{'$gte': {value}}}}})"
         else:
-            if operator == "=":
+            if operator == "=" or operator == "is":
                 query = f"db.{collection}.find({{'{field}': '{value}'}})"
             elif operator == "<":
                 query = f"db.{collection}.find({{'{field}': {{'$lt': '{value}'}}}})"
