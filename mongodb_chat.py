@@ -268,11 +268,12 @@ def parse_input_mongodb(user_input, client):
     return None, None
 
 mongodb_query_templates = {
-    "find": r"(find|get|show)\s+all\s+documents\s+where\s+(\w+)\s*(is|=|>|<|>=|<=)\s*(.+)",
-    "project": r"(find|get|show)\s+([\w,\s]+)\s+fields",
-    "grouping": r"(sum|count|average|avg|minimum|min|maximum|max)\s+(\w+)\s+by\s+(\w+)",
+    "find": r"(find|get|show)\s+all\s+documents\s+where\s+(\w+)\s*(is|=|>=|<=|>|<)\s*(.+)",
+    "projection": r"(find|get|show)\s+([\w,\s]+)\s+fields",
+    "grouping": r"(sum|average|avg|minimum|min|maximum|max)\s+(\w+)\s+by\s+(\w+)",
     "sort": r"sort\s+documents\s+by\s+(\w+)\s+in\s+(ascending|descending)\s+order",
-    "count": r"count\s+documents\s+with\s+(\w+)\s*(is|=|>|<|>=|<=)\s*(.+)"
+    "count": r"count\s+documents\s+with\s+(\w+)\s*(is|=|>=|<=|>|<)\s*(.+)",
+    "lookup": r"(lookup|search|join)\s+(\w+)\s+from\s+(\w+)\s+on\s+(\w+)\s+=\s+(\w+)"
 }
 
 def process_query(query_type, user_input, collection):
@@ -307,8 +308,8 @@ def process_query(query_type, user_input, collection):
             elif operator == ">=":
                 query = f"db.{collection}.find({{'{field}': {{'$gte': '{value}'}}}})"
     
-    elif query_type == "project":
-        match = re.search(mongodb_query_templates["project"], user_input, re.IGNORECASE)
+    elif query_type == "projection":
+        match = re.search(mongodb_query_templates["projection"], user_input, re.IGNORECASE)
         project_fields= match.group(2)
         projection = ", ".join(f"{x!r}: 1" for x in project_fields.split(", "))
         projection += ", '_id': 0"
@@ -323,6 +324,8 @@ def process_query(query_type, user_input, collection):
             func = "$min"
         elif func == "maximize" or func == "max":
             func = "$max"
+        elif func == "sum":
+            func = "$sum"
         agg_func = func.replace("$", "")
         query = (
             f"db.{collection}.aggregate(["
@@ -371,7 +374,16 @@ def process_query(query_type, user_input, collection):
                 query = f"db.{collection}.count_documents({{'{field}': {{'$gte': '{value}'}}}})"
 
     elif query_type == "lookup":
-        pass
+        match = re.search(mongodb_query_templates["lookup"], user_input, re.IGNORECASE)
+        collection, from_collection, local_field, from_field = match.group(2), match.group(3), match.group(4), match.group(5)
+        query = (
+            f"db.{collection}.aggregate(["
+            f"{{'$lookup': {{'from': '{from_collection}', "
+            f"'localField': '{local_field}', "
+            f"'foreignField': '{from_field}', "
+            f"'as': 'joined_data'}}}}"
+            f"])"
+        )        
 
     else:
         query = None
@@ -379,7 +391,30 @@ def process_query(query_type, user_input, collection):
     return query
 
 def helper():
-    print("")
+    help_instructions = [
+        "upload json -> upload your data to the database, e.g., upload input.json",
+        "list collections -> list the available collections in the database",
+        "introduce collection -> introduce a certain table in the database, e.g., introduce orders",
+        "sample -> general sample queries",
+        "sample find -> sample queries utilizing find",
+        "sample projection -> sample queries utilizing projection",
+        "sample grouping -> sample queries utilizing grouping",
+        "sample lookup -> sample queries utlizing lookup",
+        "sample unwind -> sample queries utilizing unwind",
+        "sample sort -> sample queries utilizing sort",
+        "sample count -> sample queries utilizing count",
+        "ask questions utilizing find queries, e.g., show all documents where price >= 99.1",
+        "ask questions utilizing projection queries, e.g., get rating, review fields",
+        "ask questions utilizing grouping queries, e.g., sum stock by category",
+        "ask questions utilizing sort queries, e.g., sort documents by price in descending order",
+        "ask questions utilizing count queries, e.g., count documents with rating <= 3",
+        "ask questions utilizing lookup queries, e.g., lookup users from reviews on _id = userId",
+    ]
+
+    print("Here are the commands you can input:")
+    for i in range(len(help_instructions)):
+        instruction = help_instructions[i]
+        print(f"\t{i+1}. {instruction}")
 
 def process_data(data):
     from bson import ObjectId
@@ -441,7 +476,9 @@ def chat_mongodb(user_input, client):
 
     elif action in mongodb_query_templates.keys():
         if collections:
-            collection_name = input(f"Please specify the table name you would like to query on among {collections}: " )
+            collection_name = None
+            if action != "lookup":
+                collection_name = input(f"Please specify the table name you would like to query on among {collections}: " )
             mongodb_query = process_query(action, data, collection_name)
             if mongodb_query:
                 print(f"\nGenerated Query:\n\t{mongodb_query}")
