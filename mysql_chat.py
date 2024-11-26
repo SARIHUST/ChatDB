@@ -241,24 +241,22 @@ def parse_input_mysql(user_input, conn):
         return "error", "No tables found in the current database."
 
     elif user_input.lower().startswith("introduce "):
-        match = re.match(r"introduce (\w+)", user_input, re.IGNORECASE)
+        match = re.match(r"introduce\s+(\w+)", user_input, re.IGNORECASE)
         if match:
             table_name = match.group(1)
             metadata = get_table_metadata(conn, table_name)
             if metadata:
-                result = f"Table: {table_name}\nColumns:\n"
-                for column in metadata:
-                    col_name = column[0]
-                    col_type = column[1]
-                    result += f"  - {col_name} ({col_type})\n"
-                # Add sample data
+                table = PrettyTable(["ColumnName", "DataType"])
+                metadata = [x[:2] for x in metadata]
+                table.add_rows(metadata)
+                print(f"Table {table_name} info:")
+                print(table)
                 column_names, rows = get_sample_data(conn, table_name)
-                if column_names and rows:
-                    result += "\nSample Data:\n"
-                    result += ", ".join(column_names) + "\n"
-                    for row in rows:
-                        result += ", ".join(map(str, row)) + "\n"
-                return "introduce", result
+                table = PrettyTable(column_names)
+                table.add_rows(rows)
+                print("\nSample Data:")
+                print(table)
+                return "introduce", None
             return "error", f"Table '{table_name}' does not exist or cannot be described."
     else:   # NLP
         for query_type, pattern in mysql_query_templates.items():
@@ -552,7 +550,8 @@ def chat_mysql(user_input, conn):
         print(data)
         # print("\n".join(data))
     elif action == "introduce":
-        print(data)
+        # print(data)
+        pass
     elif action == "error":
         print(f"Error: {data}")
     elif action ==  "sample":
@@ -606,7 +605,7 @@ def chat_mysql(user_input, conn):
                 if sql_query:
                     print(f"Generated Query:\n\t{sql_query}")
                     results = execute_query(conn, sql_query)
-                    if results:
+                    if results is not None:
                         columns = sql_query.split("SELECT ")[1].split(" FROM")[0].split(", ")
                         columns = [x if ") AS" not in x else x.split("AS ")[1] for x in columns]
                         columns = [x.strip() for x in columns]
@@ -615,7 +614,7 @@ def chat_mysql(user_input, conn):
                         print("\nQuery Results:")
                         print(table)
                     else:
-                        print("No results found or an error occurred.")
+                        print("An error occurred, please check your input.")
                 else:
                     print("Could not generate a valid SQL query. Please try again.")
 
