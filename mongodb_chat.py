@@ -91,27 +91,131 @@ def generate_sample_queries_for_mongodb(client, database_name, query_type=None,n
                 elif operator == ">=":
                     query = f"db.{collection}.find({{'{field}': {{'$gte': {value}}}}})"
             else:
-                pass
+                query = f"db.{collection}.find({{'{field}': '{value}'}})"
 
         elif selected_query_type == "projection":
-            pass
+            fields = random.sample(list(sample_doc.keys()), min(len(sample_doc), 2))
+            projection = ", ".join([f"{field!r}: 1" for field in fields])
+            if "_id" not in fields:
+                projection += ", '_id': 0"
+            query = f"db.{collection}.find({{}}, {{{projection}}})"
 
         elif selected_query_type == "grouping":
-            pass
+            # Generate a grouping query
+            numeric_fields = [k for k, v in sample_doc.items() if isinstance(v, (int, float))]
+            all_fields = list(sample_doc.keys())
+            
+            if numeric_fields and len(all_fields) > 1:
+                # Ensure grouping field and calculation field are different
+                group_by_field = random.choice(all_fields)
+                while group_by_field in numeric_fields:
+                    group_by_field = random.choice(all_fields)  # Avoid using the numeric field for grouping
+                
+                aggregation_field = random.choice(numeric_fields)
+                aggregation_function = random.choice(["$avg", "$sum", "$min", "$max", "$stdDevPop", "$stdDevSamp"])
+                agg_function = aggregation_function.replace("$", "")
+                
+                query = (
+                    f"db.{collection}.aggregate(["
+                    f"{{'$group': {{'_id': '${group_by_field}', "
+                    f"'{aggregation_field}_{agg_function}': {{'{aggregation_function}': '${aggregation_field}'}}}}}}"
+                    f"])"
+                )
+            else:
+                # Default grouping by any field if no numeric field is found
+                group_by_field = random.choice(all_fields)
+                query = (
+                    f"db.{collection}.aggregate(["
+                    f"{{'$group': {{'_id': '${group_by_field}', 'count': {{'$sum': 1}}}}}}"
+                    f"])"
+                )
 
         elif selected_query_type == "lookup":
-            pass
+            # Define meaningful relationships between collections
+            relationships = {
+                "users": [{"from": "reviews", "localField": "_id", "foreignField": "userId"},
+                        {"from": "orders", "localField": "_id", "foreignField": "userId"}],
+                "reviews": [{"from": "users", "localField": "userId", "foreignField": "_id"},
+                            {"from": "products", "localField": "productId", "foreignField": "_id"}],
+                "orders": [{"from": "users", "localField": "userId", "foreignField": "_id"}],
+                "products": [{"from": "reviews", "localField": "_id", "foreignField": "productId"},
+                            {"from": "categories", "localField": "category", "foreignField": "_id"}],
+                "categories": [{"from": "products", "localField": "_id", "foreignField": "category"}]
+            }
+
+            # Get possible lookups for the current collection
+            if collection in relationships:
+                possible_lookups = relationships[collection]
+                chosen_lookup = random.choice(possible_lookups)
+                query = (
+                    f"db.{collection}.aggregate(["
+                    f"{{'$lookup': {{'from': '{chosen_lookup['from']}', "
+                    f"'localField': '{chosen_lookup['localField']}', "
+                    f"'foreignField': '{chosen_lookup['foreignField']}', "
+                    f"'as': 'joined_data'}}}}"
+                    f"])"
+                )
+            else:
+                # Fallback to a generic random lookup if no defined relationship
+                other_collection = random.choice([col for col in collections if col != collection])
+                query = (
+                    f"db.{collection}.aggregate(["
+                    f"{{'$lookup': {{'from': '{other_collection}', "
+                    f"'localField': '_id', 'foreignField': '_id', 'as': 'joined_data'}}}}"
+                    f"])"
+                )
 
         elif selected_query_type == "unwind":
-            pass
+            # Generate an unwind query
+            relationships = {
+                "users": [{"from": "reviews", "localField": "_id", "foreignField": "userId"},
+                        {"from": "orders", "localField": "_id", "foreignField": "userId"}],
+                "reviews": [{"from": "users", "localField": "userId", "foreignField": "_id"},
+                            {"from": "products", "localField": "productId", "foreignField": "_id"}],
+                "orders": [{"from": "users", "localField": "userId", "foreignField": "_id"}],
+                "products": [{"from": "reviews", "localField": "_id", "foreignField": "productId"},
+                            {"from": "categories", "localField": "category", "foreignField": "_id"}],
+                "categories": [{"from": "products", "localField": "_id", "foreignField": "category"}]
+            }
+            # Get possible lookups for the current collection
+            if collection in relationships:
+                possible_lookups = relationships[collection]
+                chosen_lookup = random.choice(possible_lookups)
+                array_field = "joined_data"
+                query = (
+                    f"db.{collection}.aggregate(["
+                    f"{{'$lookup': {{'from': '{chosen_lookup['from']}', "
+                    f"'localField': '{chosen_lookup['localField']}', "
+                    f"'foreignField': '{chosen_lookup['foreignField']}', "
+                    f"'as': 'joined_data'}}}}, "
+                    f"{{'$unwind': '${array_field}'}}"
+                    f"])"
+                )
 
         elif selected_query_type == "sort":
-            pass
+            # Generate a sort query
+            field = random.choice(list(sample_doc.keys()))
+            order = random.choice([1, -1])  # Ascending or Descending
+            query = f"db.{collection}.aggregate([{{'$sort': {{'{field}': {order}}}}}])"
 
         elif selected_query_type == "count":
-            pass
+            # Generate a count query with filtering
+            possible_fields = list(sample_doc.keys())
+            field = random.choice(possible_fields)
+            field_value = sample_doc[field]
 
-        if query is not None:
+            # Check the field type and generate a condition
+            if isinstance(field_value, (int, float)):  # Numeric field
+                operator = random.choice(["$gt", "$lt", "$gte", "$lte", "$eq"])
+                value = random.randint(1, 100)  # Generate a random numeric value
+                query = f"db.{collection}.count_documents({{'{field}': {{{operator}: {value}}}}})"
+            elif isinstance(field_value, str):  # String field
+                query = f"db.{collection}.count_documents({{'{field}': '{field_value}'}})"
+            else:
+                # Fallback to count all if no suitable field found
+                query = f"db.{collection}.count_documents({{}})"
+
+        if query is not None and query not in queries:
             queries.append(query)
 
     return queries
@@ -167,6 +271,7 @@ def helper():
     print("")
 
 def chat_mongodb(user_input, client):
+    db = client[DATABASE_NAME]
     if user_input.lower() == "help":
         helper()
         return
@@ -187,5 +292,25 @@ def chat_mongodb(user_input, client):
             print(json.dumps(doc, indent=4, default=str))
         
     elif action ==  "sample":
-        sample_queires = (generate_sample_queries_for_mongodb(client=client,query_type=data,database_name=DATABASE_NAME))
-        print("\n".join(sample_queires))
+        sample_queires = generate_sample_queries_for_mongodb(client=client,query_type=data, database_name=DATABASE_NAME)
+        if len(sample_queires) == 0:
+            print("No sample queries generated from your instruction, please try again or use the help command to see instructions")
+        else:
+            print(f"Here are {len(sample_queires)} sample queries:")
+            print("\n".join(sample_queires))
+            execute_sample = input(f"\nDo you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
+
+            while execute_sample in [str(x) for x in range(1, len(sample_queires) + 1)]:
+                execute_sample = int(execute_sample)
+                query = sample_queires[execute_sample-1]
+                results = eval(query)
+                if not isinstance(results, int):
+                    results = list(results)
+                else:
+                    results = [results]
+                print("\nSelected Query:")
+                print(query)
+                print("\nQuery Results:")
+                for result in results:
+                    print(result)
+                execute_sample = input(f"\nDo you want to execute these samples?\nPlease enter the index of the sample (1-{len(sample_queires)}) to execute and see result. Enter anything else to ask other questions:")
