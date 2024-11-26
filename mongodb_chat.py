@@ -51,46 +51,68 @@ def get_collection_metadata(client, database_name, collection_name):
     return [], None, 0
 
 
-def generate_sample_queries_for_mongodb(client, database_name, query_type=None,num_queries = 5):
+def generate_sample_queries_for_mongodb(client, database_name, query_type=None,num_queries=5):
     db = client[database_name]
     collections = db.list_collection_names()
     if not collections:
         print("No collections found in the database.")
         return None
+    
     queries = []
-    for _ in range(num_queries):
-        if query_type == "basic":
-            collection_name = random.choice(collections)
-            collection = db[collection_name]
-            sample_doc = collection.find_one()
-            if sample_doc:
-                random_field = random.choice(list(sample_doc.keys()))
-                queries.append({"find": collection_name, "projection": {random_field: 1}})
+    query_types = [
+        "find", "projection", "grouping", "lookup", "unwind", "sort", "count"
+    ] if query_type is None else [query_type]
 
-        elif query_type == "where":
-            collection_name = random.choice(collections)
-            collection = db[collection_name]
-            sample_doc = collection.find_one()
-            if sample_doc:
-                random_field = random.choice(list(sample_doc.keys()))
-                random_value = sample_doc[random_field]
-                queries.append({"find": collection_name, "filter": {random_field: random_value}})
+    while len(queries) < num_queries:
+        query = None
+        collection = random.choice(collections)
+        sample_doc = db[collection].find_one()
 
-        elif query_type == "aggregation":
-            collection_name = random.choice(collections)
-            collection = db[collection_name]
-            sample_doc = collection.find_one()
-            if sample_doc:
-                random_field = random.choice(list(sample_doc.keys()))
-                queries.append({
-                    "aggregate": collection_name,
-                    "pipeline": [{"$group": {"_id": f"${random_field}", "count": {"$sum": 1}}}]
-                })
+        selected_query_type = random.choice(query_types)
 
-        else:
+        if selected_query_type == "find":
+            valid_fields = {
+                k: v for k, v in sample_doc.items() if isinstance(v, (int, float, str))
+            }
+            if not valid_fields:
+                continue
+            field = random.choice(list(valid_fields.keys()))
+            value = valid_fields[field]
+            if isinstance(value, (int, float)): # numeric value
+                operator = random.choice(["=", "<", ">", "<=", ">="])
+                if operator == "=":
+                    query = f"db.{collection}.find({{'{field}': {value}}})"
+                elif operator == "<":
+                    query = f"db.{collection}.find({{'{field}': {{'$lt': {value}}}}})"
+                elif operator == ">":
+                    query = f"db.{collection}.find({{'{field}': {{'$gt': {value}}}}})"
+                elif operator == "<=":
+                    query = f"db.{collection}.find({{'{field}': {{'$lte': {value}}}}})"
+                elif operator == ">=":
+                    query = f"db.{collection}.find({{'{field}': {{'$gte': {value}}}}})"
+            else:
+                pass
 
-            collection_name = random.choice(collections)
-            queries.append({"find": collection_name, "limit": 10})
+        elif selected_query_type == "projection":
+            pass
+
+        elif selected_query_type == "grouping":
+            pass
+
+        elif selected_query_type == "lookup":
+            pass
+
+        elif selected_query_type == "unwind":
+            pass
+
+        elif selected_query_type == "sort":
+            pass
+
+        elif selected_query_type == "count":
+            pass
+
+        if query is not None:
+            queries.append(query)
 
     return queries
 
@@ -100,20 +122,20 @@ def parse_input_mongodb(user_input, client):
         if match:
             return "upload", match.group(1)
     elif "sample" in user_input.lower():
-        if "basic" in user_input.lower():
-            return "sample", "basic"
-        elif "distinct" in user_input.lower():
-            return "sample", "distinct"
-        elif "where" in user_input.lower():
-            return "sample", "where"
-        elif "aggregation" in user_input.lower():
-            return "sample", "aggregation" 
-        elif "group by" in user_input.lower():
-            return "sample", "group by" 
-        elif "order by" in user_input.lower():
-            return "sample", "order by"
-        elif "join" in user_input.lower():
-            return "sample","join"
+        if "find" in user_input.lower():
+            return "sample", "find"
+        elif "projection" in user_input.lower():
+            return "sample", "projection"
+        elif "grouping" in user_input.lower():
+            return "sample", "grouping"
+        elif "lookup" in user_input.lower():
+            return "sample", "lookup" 
+        elif "unwind" in user_input.lower():
+            return "sample", "unwind" 
+        elif "sort" in user_input.lower():
+            return "sample", "sort"
+        elif "count" in user_input.lower():
+            return "sample","count"
         elif user_input.lower() == "sample":
             return "sample", None
         return None, None
@@ -131,13 +153,13 @@ def parse_input_mongodb(user_input, client):
             metadata = get_collection_metadata(client, DATABASE_NAME,table_name)
 
             return "introduce", metadata
-    else:   # NLP
-        for query_type, pattern in mysql_query_templates.items():
-            # print(query_type)
-            if query_type == "where" and "where" not in user_input:
-                continue
-            if re.search(pattern, user_input, re.IGNORECASE):
-                return query_type, user_input
+    # else:   # NLP
+    #     for query_type, pattern in mysql_query_templates.items():
+    #         # print(query_type)
+    #         if query_type == "where" and "where" not in user_input:
+    #             continue
+    #         if re.search(pattern, user_input, re.IGNORECASE):
+    #             return query_type, user_input
             
     return None, None
 
