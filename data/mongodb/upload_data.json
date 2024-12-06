@@ -1,0 +1,38 @@
+[
+    {
+        "CountryCode": "ABW",
+        "Language": "Dutch",
+        "IsOfficial": "T",
+        "Percentage": 5.3
+    },
+    {
+        "CountryCode": "ABW",
+        "Language": "English",
+        "IsOfficial": "F",
+        "Percentage": 9.5
+    },
+    {
+        "CountryCode": "ABW",
+        "Language": "Papiamento",
+        "IsOfficial": "F",
+        "Percentage": 76.7
+    },
+    {
+        "CountryCode": "ABW",
+        "Language": "Spanish",
+        "IsOfficial": "F",
+        "Percentage": 7.4
+    },
+    {
+        "CountryCode": "AFG",
+        "Language": "Balochi",
+        "IsOfficial": "F",
+        "Percentage": 0.9
+    },
+    {
+        "CountryCode": "AFG",
+        "Language": "Dari",
+        "IsOfficial": "T",
+        "Percentage": 32.1
+    }
+]

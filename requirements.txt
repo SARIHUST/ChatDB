@@ -1,0 +1,5 @@
+pandas==2.2.3
+mysql-connector-python==9.1.0
+pymongo==4.10.1
+prettytable==3.12.0
+cryptography==43.0.3
