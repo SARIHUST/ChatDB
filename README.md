@@ -18,9 +18,8 @@ The project structure can be divided into logical components, with `main.py` ser
 ├── main.py            # The main entry point of the application.
 ├── mongodb_chat.py    # Handles MongoDB-related chat functionalities.
 ├── mysql_chat.py      # Handles MySQL-related chat functionalities.
-├── README.md          # Provides an overview and usage instructions for the project.
 ├── requirements.txt   # Lists the dependencies required to run the project.
-└── README.md          # Duplicate file; consider removing or consolidating.
+└── README.md          # Provides an overview and usage instructions for the project.
 ```
 
 ## Environment
