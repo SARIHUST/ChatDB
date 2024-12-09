@@ -3,7 +3,7 @@
 Welcome to the repository for the ChatDB course project for USC 2024 Fall DSCI-551 Foundations of Data Management.
 
 ## Abstract
-The goal of this project is to develop ChatDB, an interactive ChatGPT-like application that assists users in earning how to query data in database systems, including SQL and NoSQL databases. For example, it can suggest sample queries, including ones that include specific language constructs (e.g., group by in SQL), and understand queries in natural language (see examples below). But unlike ChatGPT, it can also execute the queries in the database systems and display the query results to the users.
+The goal of this project is to develop ChatDB, an interactive ChatGPT-like application that assists users in learning how to query data in database systems, including SQL and NoSQL databases. For example, it can suggest sample queries, including ones that include specific language constructs (e.g., group by in SQL), and understand queries in natural language. But unlike ChatGPT, it can also execute the queries in the database systems and display the query results to the users.
 
 ## Project Structure
 
